@@ -1,0 +1,25 @@
+node_modules/
+.turbo/
+dist/
+.next/
+out/
+build/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Expo
+.expo/
+expo-env.d.ts
+*.orig.*
+web-build/
+# Native
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+# heroui-agents-md
+.heroui-docs/

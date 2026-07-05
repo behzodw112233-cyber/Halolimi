@@ -2,6 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import { api } from '@halolmia/backend/convex/_generated/api';
+import { useMutation } from 'convex/react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -53,6 +55,7 @@ export default function Create() {
   const [price, setPrice] = useState('');
   const [currency, setCurrency] = useState<'usd' | 'uzs'>('usd');
   const [cityQuery, setCityQuery] = useState('');
+  const [city, setCity] = useState('Toshkent');
   const [phone, setPhone] = useState('+998 ');
   const [phoneError, setPhoneError] = useState(false);
   const [otpOpen, setOtpOpen] = useState(false);
@@ -108,9 +111,27 @@ export default function Create() {
     setOtpOpen(true);
   };
 
-  const publish = () => {
-    // TODO: submit listing to Convex
+  const createListing = useMutation(api.listings.create);
+
+  const publish = async () => {
     setOtpOpen(false);
+    try {
+      await createListing({
+        title: `${catLabel}${breed ? ' · ' + breed : ''}`,
+        price: `${price || '0'} ${currency === 'usd' ? 'y.e.' : 'soʻm'}`,
+        category,
+        city,
+        phone: phone.trim(),
+        specs: [
+          { label: 'Vazni', value: `${weight || '—'} kg` },
+          ...(breed ? [{ label: 'Zot', value: breed }] : []),
+        ],
+        desc,
+        sellerName: 'Sotuvchi',
+      });
+    } catch {
+      /* demo: ignore write errors */
+    }
     router.replace('/promote');
   };
 
@@ -288,7 +309,7 @@ export default function Create() {
               <SearchBox value={cityQuery} onChange={setCityQuery} placeholder="Shahar boʻyicha qidirish" />
               <AppText className="mb-2 font-bold text-lg text-foreground">Mashhur shaharlar</AppText>
               {filteredCities.map((c) => (
-                <RowLink key={c} label={c} onPress={() => { tap(); setStep(7); }} />
+                <RowLink key={c} label={c} onPress={() => { tap(); setCity(c); setStep(7); }} />
               ))}
             </View>
           )}

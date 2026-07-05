@@ -1,4 +1,7 @@
+import { api } from '@halolmia/backend/convex/_generated/api';
+import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -6,7 +9,6 @@ import { ScrollView, Pressable, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
-import { LISTINGS } from '../../constants/listings';
 import { BRAND_BLUE } from '../../constants/theme';
 
 const QUICK_MSGS = [
@@ -19,11 +21,21 @@ const QUICK_MSGS = [
 export default function ListingDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const listing = LISTINGS.find((l) => l.id === id) ?? LISTINGS[0];
+  const listing = useQuery(api.listings.get, { id: id as Id<'listings'> });
+  const all = useQuery(api.listings.listActive, {}) ?? [];
   const [saved, setSaved] = useState(false);
   const [msg, setMsg] = useState('Assalomu alaykum!');
 
-  const similar = LISTINGS.filter((l) => l.id !== listing.id);
+  if (!listing) {
+    return (
+      <View className="flex-1 items-center justify-center bg-background">
+        <AppText className="text-muted">Yuklanmoqda...</AppText>
+      </View>
+    );
+  }
+
+  const similar = all.filter((l) => l._id !== listing._id).slice(0, 4);
+  const details = [{ label: 'Shahar', value: listing.city }, ...listing.specs];
 
   return (
     <View className="flex-1 bg-background">
@@ -50,7 +62,7 @@ export default function ListingDetail() {
             <Image source={CATEGORY_IMAGES[listing.category]} contentFit="contain" style={{ width: '75%', height: '85%' }} />
             <View className="absolute bottom-3 right-3 flex-row items-center rounded-md bg-black/60 px-2 py-1">
               <Ionicons name="camera" size={14} color="white" />
-              <AppText className="ml-1 text-xs text-white">1/{listing.photos}</AppText>
+              <AppText className="ml-1 text-xs text-white">1/{listing.photos?.length ?? 1}</AppText>
             </View>
           </View>
 
@@ -59,15 +71,12 @@ export default function ListingDetail() {
             <View className="flex-row items-center">
               <AppText className="font-bold text-3xl text-foreground">{listing.price}</AppText>
             </View>
-            <AppText className="mt-1 text-base text-muted">
-              {listing.title}
-              {listing.year ? ` · ${listing.year}` : ''}
-            </AppText>
+            <AppText className="mt-1 text-base text-muted">{listing.title}</AppText>
           </View>
 
           {/* Details table */}
           <View className="mt-4 px-4">
-            {(listing.details ?? []).map((d) => (
+            {details.map((d) => (
               <View key={d.label} className="flex-row justify-between border-b border-border py-3">
                 <AppText className="text-base text-muted">{d.label}</AppText>
                 <AppText className="text-base font-medium text-foreground">{d.value}</AppText>
@@ -82,7 +91,7 @@ export default function ListingDetail() {
           >
             <Ionicons name="call" size={20} color={BRAND_BLUE} />
             <AppText className="ml-3 font-medium text-base" style={{ color: BRAND_BLUE }}>
-              Sotuvchiga qoʻngʻiroq qilish {listing.sellerPhone}
+              Sotuvchiga qoʻngʻiroq qilish {listing.phone}
             </AppText>
           </Pressable>
 
@@ -98,7 +107,7 @@ export default function ListingDetail() {
           {/* Seller description */}
           <View className="mt-4 px-4">
             <AppText className="mb-1 font-bold text-lg text-foreground">Sotuvchidan maʼlumot</AppText>
-            <AppText className="text-base leading-6 text-foreground">{listing.description}</AppText>
+            <AppText className="text-base leading-6 text-foreground">{listing.desc}</AppText>
           </View>
 
           {/* Bargain card */}
@@ -137,8 +146,8 @@ export default function ListingDetail() {
           <View className="flex-row flex-wrap justify-between px-4">
             {similar.map((l) => (
               <Pressable
-                key={l.id}
-                onPress={() => router.push({ pathname: '/listing/[id]', params: { id: l.id } })}
+                key={l._id}
+                onPress={() => router.push({ pathname: '/listing/[id]', params: { id: l._id } })}
                 style={{ width: '48.5%' }}
                 className="mb-4 active:opacity-80"
               >
@@ -149,7 +158,7 @@ export default function ListingDetail() {
                   {l.title.split(',')[0]}
                 </AppText>
                 <AppText className="font-bold text-base text-foreground">{l.price}</AppText>
-                <AppText className="text-sm text-muted">{l.location}</AppText>
+                <AppText className="text-sm text-muted">{l.city}</AppText>
               </Pressable>
             ))}
           </View>
@@ -158,7 +167,7 @@ export default function ListingDetail() {
         {/* Sticky bottom bar */}
         <View className="flex-row gap-3 border-t border-border px-4 py-2.5">
           <Pressable
-            onPress={() => router.push({ pathname: '/chat/[id]', params: { id: 'seller-' + listing.id, name: 'Sotuvchi' } })}
+            onPress={() => router.push({ pathname: '/chat/[id]', params: { id: 'seller-' + listing._id, name: 'Sotuvchi' } })}
             className="h-12 flex-1 flex-row items-center justify-center rounded-xl active:opacity-90"
             style={{ backgroundColor: BRAND_BLUE }}
           >

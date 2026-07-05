@@ -20,6 +20,7 @@ import { StatusBar } from 'expo-status-bar';
 import { HeroUINativeProvider } from 'heroui-native';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { ConvexClientProvider } from '../components/convex-provider';
 import '../global.css';
 
 SplashScreen.setOptions({ duration: 300, fade: true });
@@ -44,6 +45,7 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
+      <ConvexClientProvider>
       <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
         <StatusBar style="auto" />
         <Stack screenOptions={{ headerShown: false }}>
@@ -61,6 +63,7 @@ export default function RootLayout() {
           <Stack.Screen name="settings" />
         </Stack>
       </HeroUINativeProvider>
+      </ConvexClientProvider>
     </GestureHandlerRootView>
   );
 }

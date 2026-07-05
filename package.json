@@ -7,6 +7,9 @@
     "packages/*"
   ],
   "packageManager": "npm@11.16.0",
+  "dependencies": {
+    "convex": "^1.42.1"
+  },
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
@@ -20,5 +23,8 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
   }
 }

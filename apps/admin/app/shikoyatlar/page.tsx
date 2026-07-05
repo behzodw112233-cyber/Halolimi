@@ -1,14 +1,18 @@
 'use client';
 
+import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Card, Chip } from '@heroui/react';
+import { useMutation, useQuery } from 'convex/react';
 import { Flag } from 'lucide-react';
 import { ChartCard } from '@/components/chart-card';
 import { AreaMini, BarMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
-import { REPORTS, REPORT_DAILY, REPORT_REASONS } from '@/lib/data';
+import { REPORT_DAILY, REPORT_REASONS } from '@/lib/data';
 
 export default function ShikoyatlarPage() {
-  const newCount = REPORTS.filter((r) => r.status === 'new').length;
+  const reports = useQuery(api.reports.list) ?? [];
+  const resolve = useMutation(api.reports.resolve);
+  const newCount = reports.filter((r) => r.status === 'new').length;
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeader
@@ -32,8 +36,8 @@ export default function ShikoyatlarPage() {
       </div>
 
       <div className="space-y-3">
-        {REPORTS.map((r) => (
-          <Card key={r.id} className="rounded-2xl border border-neutral-200 bg-white shadow-none">
+        {reports.map((r) => (
+          <Card key={r._id} className="rounded-2xl border border-neutral-200 bg-white shadow-none">
             <Card.Content className="flex items-center gap-4 p-4">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-50">
                 <Flag size={20} className="text-red-500" />
@@ -46,16 +50,16 @@ export default function ShikoyatlarPage() {
                   </Chip>
                 </div>
                 <p className="mt-0.5 text-sm text-neutral-500">
-                  Eʼlon: <span className="text-neutral-700">{r.listing}</span>
+                  Eʼlon: <span className="text-neutral-700">{r.listingTitle}</span>
                 </p>
                 <p className="mt-0.5 text-xs text-neutral-400">
-                  {r.id} · {r.reporter} · {r.date}
+                  {r.reporter} · {r.date}
                 </p>
               </div>
               <div className="flex gap-2">
                 <Button variant="secondary" size="sm">Eʼlonni koʻrish</Button>
                 {r.status === 'new' && (
-                  <Button variant="primary" size="sm">Hal qilish</Button>
+                  <Button variant="primary" size="sm" onPress={() => resolve({ id: r._id })}>Hal qilish</Button>
                 )}
               </div>
             </Card.Content>

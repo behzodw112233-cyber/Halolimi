@@ -13,6 +13,10 @@ export const adStatus = v.union(
   v.literal('ended')
 );
 
+export const userStatus = v.union(v.literal('active'), v.literal('blocked'));
+export const reportStatus = v.union(v.literal('new'), v.literal('resolved'));
+export const paymentStatus = v.union(v.literal('success'), v.literal('pending'));
+
 export default defineSchema({
   categories: defineTable({
     slug: v.string(),
@@ -55,4 +59,29 @@ export default defineSchema({
     start: v.string(),
     end: v.string(),
   }).index('by_status', ['status']),
+
+  users: defineTable({
+    name: v.string(),
+    phone: v.string(),
+    listings: v.number(),
+    joined: v.string(),
+    status: userStatus,
+  }),
+
+  reports: defineTable({
+    listingTitle: v.string(),
+    reason: v.string(),
+    reporter: v.string(),
+    date: v.string(),
+    status: reportStatus,
+  }).index('by_status', ['status']),
+
+  payments: defineTable({
+    user: v.string(),
+    type: v.string(),
+    method: v.string(),
+    amount: v.string(),
+    date: v.string(),
+    status: paymentStatus,
+  }),
 });

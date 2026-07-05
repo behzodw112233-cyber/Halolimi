@@ -1,10 +1,8 @@
 import type { LucideIcon } from 'lucide-react';
-import {
-  ClipboardList,
-  Clock,
-  Users,
-  Wallet,
-} from 'lucide-react';
+import { ClipboardList, Clock, Users, Wallet } from 'lucide-react';
+
+// NOTE: Entity data (listings, categories, ads, users, reports, payments) comes
+// from Convex. This file only holds display config + chart/analytics mock.
 
 export interface Stat {
   label: string;
@@ -72,103 +70,26 @@ export const CATEGORY_SHARE = [
 
 export type Status = 'active' | 'pending' | 'rejected';
 
-export interface AdminListing {
-  id: string;
-  title: string;
-  category: string;
-  price: string;
-  seller: string;
-  date: string;
-  status: Status;
-}
-
-export const RECENT: AdminListing[] = [
-  { id: 'HL-1042', title: 'Holshteyn naslli sigir', category: 'Qoramol', price: '18 500 000 soʻm', seller: 'Alisher T.', date: '04.07.2026', status: 'active' },
-  { id: 'HL-1041', title: 'Hisor qoʻylari, 4 bosh', category: 'Qoʻy-echki', price: '9 200 000 soʻm', seller: 'Dilnoza K.', date: '04.07.2026', status: 'pending' },
-  { id: 'HL-1040', title: 'Qorabayir ot', category: 'Otlar', price: '35 000 000 soʻm', seller: 'Bekzod M.', date: '03.07.2026', status: 'active' },
-  { id: 'HL-1039', title: 'Broyler joʻjalari', category: 'Parrandalar', price: '1 250 000 soʻm', seller: 'Sardor A.', date: '03.07.2026', status: 'rejected' },
-  { id: 'HL-1038', title: 'Sut echkilari, 2 ta', category: 'Qoʻy-echki', price: '4 800 000 soʻm', seller: 'Malika R.', date: '02.07.2026', status: 'active' },
-];
-
-export const QUEUE: AdminListing[] = [
-  { id: 'HL-1041', title: 'Hisor qoʻylari, 4 bosh', category: 'Qoʻy-echki', price: '9 200 000 soʻm', seller: 'Dilnoza K.', date: '5 daq oldin', status: 'pending' },
-  { id: 'HL-1037', title: 'Angus buqasi', category: 'Qoramol', price: '22 000 000 soʻm', seller: 'Jahongir S.', date: '12 daq oldin', status: 'pending' },
-  { id: 'HL-1036', title: 'Quyonlar, 6 ta', category: 'Quyonlar', price: '900 000 soʻm', seller: 'Nodira X.', date: '28 daq oldin', status: 'pending' },
-];
-
 export const STATUS_META: Record<Status, { label: string; color: 'success' | 'warning' | 'danger' }> = {
   active: { label: 'Faol', color: 'success' },
   pending: { label: 'Tekshiruvda', color: 'warning' },
   rejected: { label: 'Rad etilgan', color: 'danger' },
 };
 
-// Visual (emoji + gradient) per category display name
-export const CATEGORY_VISUAL: Record<string, { emoji: string; grad: [string, string] }> = {
-  Qoramol: { emoji: '🐄', grad: ['#0F5132', '#16A34A'] },
-  'Qoʻy-echki': { emoji: '🐑', grad: ['#B45309', '#F59E0B'] },
-  Parrandalar: { emoji: '🐔', grad: ['#9A3412', '#EA580C'] },
-  Otlar: { emoji: '🐎', grad: ['#5B21B6', '#8B5CF6'] },
-  Quyonlar: { emoji: '🐇', grad: ['#0E7490', '#06B6D4'] },
+// Visual (name + emoji + gradient) per category slug
+export const CATEGORY_VISUAL: Record<string, { name: string; emoji: string; grad: [string, string] }> = {
+  cattle: { name: 'Qoramol', emoji: '🐄', grad: ['#0F5132', '#16A34A'] },
+  sheep: { name: 'Qoʻy-echki', emoji: '🐑', grad: ['#B45309', '#F59E0B'] },
+  horses: { name: 'Otlar', emoji: '🐎', grad: ['#5B21B6', '#8B5CF6'] },
+  poultry: { name: 'Parrandalar', emoji: '🐔', grad: ['#9A3412', '#EA580C'] },
+  pets: { name: 'Uy hayvonlari', emoji: '🐕', grad: ['#1E3A8A', '#3B82F6'] },
+  rabbits: { name: 'Quyonlar', emoji: '🐇', grad: ['#0E7490', '#06B6D4'] },
 };
 
-// Extended listings for the Eʼlonlar image grid
-export const ELONLAR: AdminListing[] = [
-  ...RECENT,
-  { id: 'HL-1035', title: 'Qorabayir toychoq', category: 'Otlar', price: '12 000 000 soʻm', seller: 'Ulugʻbek N.', date: '02.07.2026', status: 'active' },
-  { id: 'HL-1034', title: 'Kaliforniya quyonlari', category: 'Quyonlar', price: '900 000 soʻm', seller: 'Nodira X.', date: '01.07.2026', status: 'pending' },
-  { id: 'HL-1033', title: 'Tuxum tovuqlari, 20 ta', category: 'Parrandalar', price: '1 800 000 soʻm', seller: 'Sanjar B.', date: '01.07.2026', status: 'active' },
-  { id: 'HL-1032', title: 'Simmental buqasi', category: 'Qoramol', price: '26 000 000 soʻm', seller: 'Rustam Q.', date: '30.06.2026', status: 'rejected' },
-];
+export const catVisual = (slug: string) =>
+  CATEGORY_VISUAL[slug] ?? { name: slug, emoji: '🐾', grad: ['#334155', '#64748B'] as [string, string] };
 
-export interface AdminUser {
-  id: string;
-  name: string;
-  phone: string;
-  listings: number;
-  joined: string;
-  status: 'active' | 'blocked';
-}
-
-export const USERS: AdminUser[] = [
-  { id: 'U-2041', name: 'Alisher Toshmatov', phone: '+998 90 123 45 67', listings: 12, joined: '12.03.2026', status: 'active' },
-  { id: 'U-2040', name: 'Dilnoza Karimova', phone: '+998 91 234 56 78', listings: 5, joined: '02.04.2026', status: 'active' },
-  { id: 'U-2039', name: 'Bekzod Murodov', phone: '+998 93 345 67 89', listings: 23, joined: '18.01.2026', status: 'active' },
-  { id: 'U-2038', name: 'Sardor Aliyev', phone: '+998 94 456 78 90', listings: 2, joined: '29.05.2026', status: 'blocked' },
-  { id: 'U-2037', name: 'Malika Rahimova', phone: '+998 95 567 89 01', listings: 8, joined: '07.02.2026', status: 'active' },
-];
-
-export interface AdminCategory {
-  name: string;
-  count: number;
-  active: boolean;
-}
-
-export const CATEGORIES: AdminCategory[] = [
-  { name: 'Qoramol', count: 5240, active: true },
-  { name: 'Qoʻy-echki', count: 3180, active: true },
-  { name: 'Parrandalar', count: 2260, active: true },
-  { name: 'Otlar', count: 980, active: true },
-  { name: 'Quyonlar', count: 620, active: true },
-  { name: 'Baliqlar', count: 210, active: false },
-];
-
-export interface AdminReport {
-  id: string;
-  listing: string;
-  reason: string;
-  reporter: string;
-  date: string;
-  status: 'new' | 'resolved';
-}
-
-export const REPORTS: AdminReport[] = [
-  { id: 'R-311', listing: 'Holshteyn sigir', reason: 'Yolgʻon narx', reporter: 'U-2040', date: '04.07.2026', status: 'new' },
-  { id: 'R-310', listing: 'Broyler joʻjalari', reason: 'Spam / takroriy eʼlon', reporter: 'U-2037', date: '03.07.2026', status: 'new' },
-  { id: 'R-309', listing: 'Qorabayir ot', reason: 'Notoʻgʻri kategoriya', reporter: 'U-2039', date: '02.07.2026', status: 'resolved' },
-  { id: 'R-308', listing: 'Sut echkilari', reason: 'Aloqa raqami ishlamaydi', reporter: 'U-2041', date: '01.07.2026', status: 'new' },
-];
-
-// ---- Per-page chart datasets ----
+// ---- Per-page chart datasets (analytics mock) ----
 
 export const ELON_DAILY = [
   { x: 'Du', v: 120 }, { x: 'Se', v: 180 }, { x: 'Ch', v: 150 },
@@ -219,23 +140,6 @@ export const PAY_METHODS = [
   { name: 'Payme', value: 46, color: '#33CCCC' },
   { name: 'Click', value: 34, color: '#0A6CFF' },
   { name: 'Uzcard', value: 20, color: '#1E3A8A' },
-];
-
-export interface AdminPayment {
-  id: string;
-  user: string;
-  type: string;
-  method: 'Uzcard' | 'Payme' | 'Click';
-  amount: string;
-  date: string;
-  status: 'success' | 'pending';
-}
-
-export const PAYMENTS: AdminPayment[] = [
-  { id: 'P-9051', user: 'Alisher T.', type: 'VIP reklama', method: 'Payme', amount: '51 000 soʻm', date: '04.07.2026 14:20', status: 'success' },
-  { id: 'P-9050', user: 'Bekzod M.', type: 'LUX reklama', method: 'Click', amount: '102 000 soʻm', date: '04.07.2026 12:03', status: 'success' },
-  { id: 'P-9049', user: 'Malika R.', type: 'ZOʻR reklama', method: 'Uzcard', amount: '29 000 soʻm', date: '03.07.2026 18:44', status: 'pending' },
-  { id: 'P-9048', user: 'Sardor A.', type: 'AʼLO reklama', method: 'Payme', amount: '6 000 soʻm', date: '03.07.2026 09:12', status: 'success' },
 ];
 
 // ---- Ads Manager (Meta-style) ----

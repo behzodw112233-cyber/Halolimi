@@ -1,4 +1,6 @@
+import { api } from '@halolmia/backend/convex/_generated/api';
 import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from 'convex/react';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -10,35 +12,19 @@ import { CATEGORY_IMAGES } from '../constants/category-images';
 
 const BRAND_BLUE = '#0A6CFF';
 
-type Category = {
-  id: string;
-  name: string;
-  /** Temporary emoji placeholder — swap for a generated image later. */
-  emoji: string;
-  featured?: boolean;
-};
-
-const CATEGORIES: Category[] = [
-  { id: 'cattle', name: 'Qoramol', emoji: '🐄', featured: true },
-  { id: 'sheep', name: 'Qoʻy va echkilar', emoji: '🐑', featured: true },
-  { id: 'horses', name: 'Otlar', emoji: '🐎' },
-  { id: 'poultry', name: 'Parrandalar', emoji: '🐔' },
-  { id: 'pets', name: 'Uy hayvonlari', emoji: '🐕' },
-  { id: 'rabbits', name: 'Quyonlar', emoji: '🐇' },
-  { id: 'fish', name: 'Baliqlar', emoji: '🐟' },
-  { id: 'supplies', name: 'Yem-xashak va anjomlar', emoji: '🌾' },
-];
+type Category = { slug: string; name: string; emoji: string };
 
 export default function Sell() {
   const router = useRouter();
+  const categories = useQuery(api.categories.list) ?? [];
 
-  const select = (id: string) => {
+  const select = (slug: string) => {
     if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
-    router.push({ pathname: '/create', params: { category: id } });
+    router.push({ pathname: '/create', params: { category: slug } });
   };
 
-  const featured = CATEGORIES.filter((c) => c.featured);
-  const rest = CATEGORIES.filter((c) => !c.featured);
+  const featured = categories.slice(0, 2);
+  const rest = categories.slice(2);
 
   return (
     <View className="flex-1 bg-background">
@@ -67,15 +53,15 @@ export default function Sell() {
           {/* Featured (full width) */}
           <View className="gap-3">
             {featured.map((c) => (
-              <CategoryCard key={c.id} category={c} onPress={() => select(c.id)} featured />
+              <CategoryCard key={c._id} category={c} onPress={() => select(c.slug)} featured />
             ))}
           </View>
 
           {/* Grid (2 columns) */}
           <View className="mt-3 flex-row flex-wrap justify-between">
             {rest.map((c) => (
-              <View key={c.id} style={{ width: '48.5%' }} className="mb-3">
-                <CategoryCard category={c} onPress={() => select(c.id)} />
+              <View key={c._id} style={{ width: '48.5%' }} className="mb-3">
+                <CategoryCard category={c} onPress={() => select(c.slug)} />
               </View>
             ))}
           </View>
@@ -105,7 +91,7 @@ function CategoryCard({
   onPress: () => void;
   featured?: boolean;
 }) {
-  const image = CATEGORY_IMAGES[category.id];
+  const image = CATEGORY_IMAGES[category.slug];
 
   return (
     <Pressable

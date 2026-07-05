@@ -69,11 +69,33 @@ const ADS = [
   },
 ];
 
-/** One-shot seed. Safe to re-run: clears core tables first. */
+const USERS = [
+  { name: 'Alisher Toshmatov', phone: '+998 90 123 45 67', listings: 12, joined: '12.03.2026', status: 'active' as const },
+  { name: 'Dilnoza Karimova', phone: '+998 91 234 56 78', listings: 5, joined: '02.04.2026', status: 'active' as const },
+  { name: 'Bekzod Murodov', phone: '+998 93 345 67 89', listings: 23, joined: '18.01.2026', status: 'active' as const },
+  { name: 'Sardor Aliyev', phone: '+998 94 456 78 90', listings: 2, joined: '29.05.2026', status: 'blocked' as const },
+  { name: 'Malika Rahimova', phone: '+998 95 567 89 01', listings: 8, joined: '07.02.2026', status: 'active' as const },
+];
+
+const REPORTS = [
+  { listingTitle: 'Holshteyn sigir', reason: 'Yolgʻon narx', reporter: 'Dilnoza K.', date: '04.07.2026', status: 'new' as const },
+  { listingTitle: 'Broyler joʻjalari', reason: 'Spam / takroriy eʼlon', reporter: 'Malika R.', date: '03.07.2026', status: 'new' as const },
+  { listingTitle: 'Qorabayir ot', reason: 'Notoʻgʻri kategoriya', reporter: 'Bekzod M.', date: '02.07.2026', status: 'resolved' as const },
+  { listingTitle: 'Sut echkilari', reason: 'Aloqa raqami ishlamaydi', reporter: 'Alisher T.', date: '01.07.2026', status: 'new' as const },
+];
+
+const PAYMENTS = [
+  { user: 'Alisher T.', type: 'VIP reklama', method: 'Payme', amount: '51 000 soʻm', date: '04.07.2026 14:20', status: 'success' as const },
+  { user: 'Bekzod M.', type: 'LUX reklama', method: 'Click', amount: '102 000 soʻm', date: '04.07.2026 12:03', status: 'success' as const },
+  { user: 'Malika R.', type: 'ZOʻR reklama', method: 'Uzcard', amount: '29 000 soʻm', date: '03.07.2026 18:44', status: 'pending' as const },
+  { user: 'Sardor A.', type: 'AʼLO reklama', method: 'Payme', amount: '6 000 soʻm', date: '03.07.2026 09:12', status: 'success' as const },
+];
+
+/** One-shot seed. Safe to re-run: clears tables first. */
 export const run = mutation({
   args: {},
   handler: async (ctx) => {
-    for (const table of ['categories', 'listings', 'ads'] as const) {
+    for (const table of ['categories', 'listings', 'ads', 'users', 'reports', 'payments'] as const) {
       const rows = await ctx.db.query(table).collect();
       await Promise.all(rows.map((r) => ctx.db.delete(r._id)));
     }
@@ -81,6 +103,12 @@ export const run = mutation({
     let t = Date.now();
     for (const l of LISTINGS) await ctx.db.insert('listings', { ...l, createdAt: t-- });
     for (const a of ADS) await ctx.db.insert('ads', a);
-    return { categories: CATEGORIES.length, listings: LISTINGS.length, ads: ADS.length };
+    for (const u of USERS) await ctx.db.insert('users', u);
+    for (const r of REPORTS) await ctx.db.insert('reports', r);
+    for (const p of PAYMENTS) await ctx.db.insert('payments', p);
+    return {
+      categories: CATEGORIES.length, listings: LISTINGS.length, ads: ADS.length,
+      users: USERS.length, reports: REPORTS.length, payments: PAYMENTS.length,
+    };
   },
 });

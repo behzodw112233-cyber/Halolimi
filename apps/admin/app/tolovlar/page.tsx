@@ -1,10 +1,12 @@
 'use client';
 
+import { api } from '@halolmia/backend/convex/_generated/api';
 import { Card, Chip } from '@heroui/react';
+import { useQuery } from 'convex/react';
 import { ChartCard } from '@/components/chart-card';
 import { AreaMini, DonutMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
-import { PAYMENTS, PAY_DAILY, PAY_METHODS } from '@/lib/data';
+import { PAY_DAILY, PAY_METHODS } from '@/lib/data';
 
 const METHOD_COLOR: Record<string, string> = {
   Uzcard: '#1E3A8A',
@@ -13,6 +15,7 @@ const METHOD_COLOR: Record<string, string> = {
 };
 
 export default function TolovlarPage() {
+  const payments = useQuery(api.payments.list) ?? [];
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Toʻlovlar" subtitle="Reklama va promo toʻlovlari tarixi" />
@@ -59,9 +62,9 @@ export default function TolovlarPage() {
                 </tr>
               </thead>
               <tbody>
-                {PAYMENTS.map((p) => (
-                  <tr key={p.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
-                    <td className="px-5 py-3.5 font-medium text-neutral-900">{p.id}</td>
+                {payments.map((p) => (
+                  <tr key={p._id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
+                    <td className="px-5 py-3.5 font-medium text-neutral-900">P-{p._id.slice(-5)}</td>
                     <td className="px-5 py-3.5 text-neutral-600">{p.user}</td>
                     <td className="px-5 py-3.5 text-neutral-600">{p.type}</td>
                     <td className="px-5 py-3.5">

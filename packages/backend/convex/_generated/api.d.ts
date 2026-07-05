@@ -11,7 +11,10 @@
 import type * as ads from "../ads.js";
 import type * as categories from "../categories.js";
 import type * as listings from "../listings.js";
+import type * as payments from "../payments.js";
+import type * as reports from "../reports.js";
 import type * as seed from "../seed.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -23,7 +26,10 @@ declare const fullApi: ApiFromModules<{
   ads: typeof ads;
   categories: typeof categories;
   listings: typeof listings;
+  payments: typeof payments;
+  reports: typeof reports;
   seed: typeof seed;
+  users: typeof users;
 }>;
 
 /**

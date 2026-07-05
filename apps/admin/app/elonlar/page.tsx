@@ -1,18 +1,21 @@
 'use client';
 
+import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Chip } from '@heroui/react';
+import { useQuery } from 'convex/react';
 import { Plus } from 'lucide-react';
 import { ChartCard } from '@/components/chart-card';
 import { AreaMini, DonutMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
-import { CATEGORY_VISUAL, ELONLAR, ELON_DAILY, ELON_STATUS, STATUS_META } from '@/lib/data';
+import { catVisual, ELON_DAILY, ELON_STATUS, STATUS_META } from '@/lib/data';
 
 export default function ElonlarPage() {
+  const listings = useQuery(api.listings.list, {}) ?? [];
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
         title="Eʼlonlar"
-        subtitle={`Jami ${ELONLAR.length} ta eʼlon`}
+        subtitle={`Jami ${listings.length} ta eʼlon`}
         action={
           <Button variant="primary" className="gap-2">
             <Plus size={17} />
@@ -33,12 +36,12 @@ export default function ElonlarPage() {
 
       {/* Image-badge grid (Aceternity style) */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {ELONLAR.map((l) => {
-          const v = CATEGORY_VISUAL[l.category] ?? { emoji: '🐾', grad: ['#334155', '#64748B'] as [string, string] };
+        {listings.map((l) => {
+          const v = catVisual(l.category);
           const s = STATUS_META[l.status];
           return (
             <div
-              key={l.id}
+              key={l._id}
               className="group overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm transition-shadow hover:shadow-md"
             >
               {/* "image" */}
@@ -57,10 +60,7 @@ export default function ElonlarPage() {
                 </div>
                 {/* category badge */}
                 <div className="absolute left-3 top-3 rounded-full bg-black/25 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
-                  {l.category}
-                </div>
-                <div className="absolute bottom-3 left-3 rounded-md bg-black/30 px-2 py-0.5 text-xs text-white">
-                  {l.id}
+                  {v.name}
                 </div>
               </div>
               {/* body */}
@@ -68,8 +68,8 @@ export default function ElonlarPage() {
                 <p className="truncate font-semibold text-neutral-900">{l.title}</p>
                 <p className="mt-1 text-lg font-bold text-neutral-900">{l.price}</p>
                 <div className="mt-2 flex items-center justify-between text-xs text-neutral-400">
-                  <span>{l.seller}</span>
-                  <span>{l.date}</span>
+                  <span>{l.sellerName}</span>
+                  <span>{new Date(l.createdAt).toLocaleDateString('ru-RU')}</span>
                 </div>
               </div>
             </div>

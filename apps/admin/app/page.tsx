@@ -1,19 +1,23 @@
 'use client';
 
+import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Card, Chip } from '@heroui/react';
+import { useQuery } from 'convex/react';
 import { Check, Download, X } from 'lucide-react';
 import { EvilComposedChart } from '@/components/charts/composed-chart';
 import { EvilSankeyChart } from '@/components/charts/sankey-chart';
 import { StatCard } from '@/components/stat-card';
 import {
   CATEGORY_SHARE,
-  QUEUE,
-  RECENT,
+  catVisual,
   STATS,
   STATUS_META,
 } from '@/lib/data';
 
 export default function Dashboard() {
+  const listings = useQuery(api.listings.list, {}) ?? [];
+  const recent = listings.slice(0, 5);
+  const queue = listings.filter((l) => l.status === 'pending');
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       {/* Page header */}
@@ -132,27 +136,25 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {RECENT.map((l) => {
+                  {recent.map((l) => {
                     const s = STATUS_META[l.status];
                     return (
                       <tr
-                        key={l.id}
+                        key={l._id}
                         className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
                       >
                         <td className="px-5 py-3.5">
                           <p className="font-medium text-neutral-900">{l.title}</p>
-                          <p className="text-xs text-neutral-400">
-                            {l.id} · {l.seller}
-                          </p>
+                          <p className="text-xs text-neutral-400">{l.sellerName}</p>
                         </td>
-                        <td className="px-5 py-3.5 text-neutral-600">{l.category}</td>
+                        <td className="px-5 py-3.5 text-neutral-600">{catVisual(l.category).name}</td>
                         <td className="px-5 py-3.5 font-medium text-neutral-900">{l.price}</td>
                         <td className="px-5 py-3.5">
                           <Chip variant="soft" color={s.color} size="sm">
                             {s.label}
                           </Chip>
                         </td>
-                        <td className="px-5 py-3.5 text-neutral-500">{l.date}</td>
+                        <td className="px-5 py-3.5 text-neutral-500">{new Date(l.createdAt).toLocaleDateString('ru-RU')}</td>
                       </tr>
                     );
                   })}
@@ -169,17 +171,20 @@ export default function Dashboard() {
               Tekshiruv navbati
             </Card.Title>
             <Chip variant="soft" color="warning" size="sm">
-              {QUEUE.length} ta
+              {queue.length} ta
             </Chip>
           </Card.Header>
           <Card.Content className="space-y-3 p-5">
-            {QUEUE.map((l) => (
-              <div key={l.id} className="rounded-xl border border-neutral-200 p-3">
+            {queue.length === 0 && (
+              <p className="py-4 text-center text-sm text-neutral-400">Navbat boʻsh 🎉</p>
+            )}
+            {queue.map((l) => (
+              <div key={l._id} className="rounded-xl border border-neutral-200 p-3">
                 <p className="text-sm font-medium text-neutral-900">{l.title}</p>
                 <p className="mt-0.5 text-xs text-neutral-400">
-                  {l.category} · {l.price}
+                  {catVisual(l.category).name} · {l.price}
                 </p>
-                <p className="mt-0.5 text-xs text-neutral-400">{l.date}</p>
+                <p className="mt-0.5 text-xs text-neutral-400">{new Date(l.createdAt).toLocaleDateString('ru-RU')}</p>
                 <div className="mt-2.5 flex gap-2">
                   <Button variant="primary" size="sm" className="flex-1 gap-1">
                     <Check size={15} />

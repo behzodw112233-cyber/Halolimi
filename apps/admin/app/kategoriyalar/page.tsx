@@ -1,13 +1,16 @@
 'use client';
 
+import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Card, Chip } from '@heroui/react';
+import { useQuery } from 'convex/react';
 import { Plus } from 'lucide-react';
 import { ChartCard } from '@/components/chart-card';
 import { BarMini, DonutMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
-import { CATEGORIES, CATEGORY_SHARE, CATEGORY_VISUAL, CAT_BARS } from '@/lib/data';
+import { catVisual, CATEGORY_SHARE, CAT_BARS } from '@/lib/data';
 
 export default function KategoriyalarPage() {
+  const categories = useQuery(api.categories.withCounts) ?? [];
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
@@ -32,16 +35,16 @@ export default function KategoriyalarPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {CATEGORIES.map((c) => {
-          const v = CATEGORY_VISUAL[c.name] ?? { emoji: '🐾', grad: ['#334155', '#64748B'] as [string, string] };
+        {categories.map((c) => {
+          const v = catVisual(c.slug);
           return (
-            <Card key={c.name} className="rounded-2xl border border-neutral-200 bg-white shadow-none">
+            <Card key={c._id} className="rounded-2xl border border-neutral-200 bg-white shadow-none">
               <Card.Content className="flex items-center gap-4 p-4">
                 <div
                   className="flex h-14 w-14 items-center justify-center rounded-2xl text-2xl"
                   style={{ background: `linear-gradient(135deg, ${v.grad[0]}, ${v.grad[1]})` }}
                 >
-                  {v.emoji}
+                  {c.emoji}
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold text-neutral-900">{c.name}</p>

@@ -1,14 +1,15 @@
+import { api } from '@halolmia/backend/convex/_generated/api';
 import { Ionicons } from '@expo/vector-icons';
+import { useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { ScrollView, Pressable, View } from 'react-native';
+import { Linking, ScrollView, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { Logo } from '../../components/logo';
 import { ListingCard } from '../../components/listing-card';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
-import { LISTINGS } from '../../constants/listings';
 import { HAS_UNREAD } from '../../constants/notifications';
 import { PROMOS, PROMO_IMAGES } from '../../constants/promos';
 import { BRAND_BLUE } from '../../constants/theme';
@@ -23,6 +24,8 @@ const HOME_CATEGORIES = [
 
 export default function Home() {
   const router = useRouter();
+  const listings = useQuery(api.listings.listActive, {}) ?? [];
+  const ads = useQuery(api.ads.byPlacement, { placement: 'app' }) ?? [];
 
   return (
     <View className="flex-1 bg-background">
@@ -157,7 +160,7 @@ export default function Home() {
           {/* Listings */}
           <View className="mt-6 px-4">
             <AppText className="font-bold text-lg text-foreground">
-              {LISTINGS.length} ta eʼlon
+              {listings.length} ta eʼlon
             </AppText>
             <Pressable className="mt-1 flex-row items-center active:opacity-70">
               <AppText className="font-semibold text-base" style={{ color: BRAND_BLUE }}>
@@ -167,12 +170,46 @@ export default function Home() {
             </Pressable>
           </View>
 
+          {/* Sponsored ad (from Convex — managed in admin Ads panel) */}
+          {ads.length > 0 && (
+            <Pressable
+              className="mx-4 mt-3 overflow-hidden rounded-2xl active:opacity-90"
+              onPress={() => Linking.openURL(ads[0].url).catch(() => {})}
+            >
+              <LinearGradient
+                colors={[ads[0].grad[0], ads[0].grad[1] ?? ads[0].grad[0]]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{ padding: 16, flexDirection: 'row', alignItems: 'center' }}
+              >
+                <AppText className="text-4xl">{ads[0].emoji}</AppText>
+                <View className="ml-3 flex-1">
+                  <View className="mb-0.5 self-start rounded-full bg-black/20 px-2 py-0.5">
+                    <AppText className="text-[10px] font-medium uppercase tracking-wide text-white">
+                      Reklama · {ads[0].advertiser}
+                    </AppText>
+                  </View>
+                  <AppText className="font-bold text-base text-white">{ads[0].headline}</AppText>
+                  <AppText className="text-xs leading-4 text-white/85">{ads[0].body}</AppText>
+                </View>
+              </LinearGradient>
+              <View className="flex-row items-center justify-between bg-black/10 px-4 py-2">
+                <AppText className="text-xs text-white/80">Homiylik asosida</AppText>
+                <View className="rounded-full bg-white px-3 py-1">
+                  <AppText className="text-xs font-semibold" style={{ color: ads[0].grad[0] }}>
+                    {ads[0].cta}
+                  </AppText>
+                </View>
+              </View>
+            </Pressable>
+          )}
+
           <View className="mt-3 gap-3 px-4">
-            {LISTINGS.map((listing) => (
+            {listings.map((listing) => (
               <ListingCard
-                key={listing.id}
+                key={listing._id}
                 listing={listing}
-                onPress={() => router.push({ pathname: '/listing/[id]', params: { id: listing.id } })}
+                onPress={() => router.push({ pathname: '/listing/[id]', params: { id: listing._id } })}
               />
             ))}
           </View>

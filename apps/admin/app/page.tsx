@@ -1,0 +1,200 @@
+'use client';
+
+import { Button, Card, Chip } from '@heroui/react';
+import { Check, Download, X } from 'lucide-react';
+import { EvilComposedChart } from '@/components/charts/composed-chart';
+import { EvilSankeyChart } from '@/components/charts/sankey-chart';
+import { StatCard } from '@/components/stat-card';
+import {
+  CATEGORY_SHARE,
+  QUEUE,
+  RECENT,
+  STATS,
+  STATUS_META,
+} from '@/lib/data';
+
+export default function Dashboard() {
+  return (
+    <div className="mx-auto max-w-7xl space-y-6">
+      {/* Page header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900">Boshqaruv paneli</h1>
+          <p className="mt-0.5 text-sm text-neutral-500">
+            Xush kelibsiz! Bugungi holat — 4-iyul, 2026.
+          </p>
+        </div>
+        <Button variant="secondary" className="gap-2">
+          <Download size={17} />
+          Hisobot
+        </Button>
+      </div>
+
+      {/* Stat cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {STATS.map((s) => (
+          <StatCard key={s.label} stat={s} />
+        ))}
+      </div>
+
+      {/* Charts row */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Composed chart: listings + revenue */}
+        <Card className="rounded-2xl border border-neutral-200 bg-white shadow-none lg:col-span-2">
+          <Card.Header className="flex items-center justify-between p-5 pb-0">
+            <div>
+              <Card.Title className="text-base font-semibold text-neutral-900">
+                Haftalik eʼlonlar va daromad
+              </Card.Title>
+              <div className="mt-1.5 flex items-center gap-4">
+                <span className="flex items-center gap-1.5 text-xs text-neutral-500">
+                  <span className="h-2 w-2 rounded-full bg-accent" /> Eʼlonlar
+                </span>
+                <span className="flex items-center gap-1.5 text-xs text-neutral-500">
+                  <span className="h-2 w-2 rounded-full bg-green-600" /> Daromad (mln)
+                </span>
+              </div>
+            </div>
+            <Chip variant="soft" color="success" size="sm">
+              +14%
+            </Chip>
+          </Card.Header>
+          <Card.Content className="p-3">
+            <EvilComposedChart />
+          </Card.Content>
+        </Card>
+
+        {/* Category share */}
+        <Card className="rounded-2xl border border-neutral-200 bg-white shadow-none">
+          <Card.Header className="p-5 pb-0">
+            <Card.Title className="text-base font-semibold text-neutral-900">
+              Kategoriyalar boʻyicha
+            </Card.Title>
+          </Card.Header>
+          <Card.Content className="space-y-4 p-5">
+            {CATEGORY_SHARE.map((c) => (
+              <div key={c.name}>
+                <div className="mb-1.5 flex justify-between text-sm">
+                  <span className="text-neutral-600">{c.name}</span>
+                  <span className="font-medium text-neutral-900">{c.value}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-neutral-100">
+                  <div
+                    className="h-full rounded-full"
+                    style={{ width: `${c.value}%`, backgroundColor: c.color }}
+                  />
+                </div>
+              </div>
+            ))}
+          </Card.Content>
+        </Card>
+      </div>
+
+      {/* Sankey: category → status flow */}
+      <Card className="rounded-2xl border border-neutral-200 bg-white shadow-none">
+        <Card.Header className="flex items-center justify-between p-5 pb-0">
+          <div>
+            <Card.Title className="text-base font-semibold text-neutral-900">
+              Eʼlonlar oqimi
+            </Card.Title>
+            <Card.Description className="mt-0.5 text-sm text-neutral-400">
+              Kategoriya → tekshiruv holati boʻyicha taqsimot
+            </Card.Description>
+          </div>
+        </Card.Header>
+        <Card.Content className="p-3">
+          <EvilSankeyChart />
+        </Card.Content>
+      </Card>
+
+      {/* Table + queue */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Recent listings */}
+        <Card className="rounded-2xl border border-neutral-200 bg-white shadow-none lg:col-span-2">
+          <Card.Header className="flex items-center justify-between p-5 pb-3">
+            <Card.Title className="text-base font-semibold text-neutral-900">
+              Soʻnggi eʼlonlar
+            </Card.Title>
+            <Button variant="tertiary" size="sm">
+              Barchasi
+            </Button>
+          </Card.Header>
+          <Card.Content className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-y border-neutral-200 text-xs uppercase text-neutral-400">
+                    <th className="px-5 py-3 font-medium">Eʼlon</th>
+                    <th className="px-5 py-3 font-medium">Kategoriya</th>
+                    <th className="px-5 py-3 font-medium">Narx</th>
+                    <th className="px-5 py-3 font-medium">Holat</th>
+                    <th className="px-5 py-3 font-medium">Sana</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {RECENT.map((l) => {
+                    const s = STATUS_META[l.status];
+                    return (
+                      <tr
+                        key={l.id}
+                        className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50"
+                      >
+                        <td className="px-5 py-3.5">
+                          <p className="font-medium text-neutral-900">{l.title}</p>
+                          <p className="text-xs text-neutral-400">
+                            {l.id} · {l.seller}
+                          </p>
+                        </td>
+                        <td className="px-5 py-3.5 text-neutral-600">{l.category}</td>
+                        <td className="px-5 py-3.5 font-medium text-neutral-900">{l.price}</td>
+                        <td className="px-5 py-3.5">
+                          <Chip variant="soft" color={s.color} size="sm">
+                            {s.label}
+                          </Chip>
+                        </td>
+                        <td className="px-5 py-3.5 text-neutral-500">{l.date}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card.Content>
+        </Card>
+
+        {/* Moderation queue */}
+        <Card className="rounded-2xl border border-neutral-200 bg-white shadow-none">
+          <Card.Header className="flex items-center justify-between p-5 pb-3">
+            <Card.Title className="text-base font-semibold text-neutral-900">
+              Tekshiruv navbati
+            </Card.Title>
+            <Chip variant="soft" color="warning" size="sm">
+              {QUEUE.length} ta
+            </Chip>
+          </Card.Header>
+          <Card.Content className="space-y-3 p-5">
+            {QUEUE.map((l) => (
+              <div key={l.id} className="rounded-xl border border-neutral-200 p-3">
+                <p className="text-sm font-medium text-neutral-900">{l.title}</p>
+                <p className="mt-0.5 text-xs text-neutral-400">
+                  {l.category} · {l.price}
+                </p>
+                <p className="mt-0.5 text-xs text-neutral-400">{l.date}</p>
+                <div className="mt-2.5 flex gap-2">
+                  <Button variant="primary" size="sm" className="flex-1 gap-1">
+                    <Check size={15} />
+                    Tasdiqlash
+                  </Button>
+                  <Button variant="danger-soft" size="sm" className="flex-1 gap-1">
+                    <X size={15} />
+                    Rad etish
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </Card.Content>
+        </Card>
+      </div>
+    </div>
+  );
+}

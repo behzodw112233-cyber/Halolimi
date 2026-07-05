@@ -1,0 +1,19 @@
+@import 'tailwindcss';
+@import '@heroui/styles';
+
+:root {
+  /* Halolmi brand accent (blue) */
+  --accent: #0a6cff;
+  --accent-foreground: #ffffff;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+}

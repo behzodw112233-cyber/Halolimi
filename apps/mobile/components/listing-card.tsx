@@ -4,14 +4,22 @@ import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { CATEGORY_IMAGES } from '../constants/category-images';
 import { BRAND_BLUE } from '../constants/theme';
-import type { Listing } from '../constants/listings';
 import { AppText } from './app-text';
+
+export interface CardListing {
+  title: string;
+  price: string;
+  category: string;
+  city: string;
+  specs: { label: string; value: string }[];
+  photos?: string[];
+}
 
 export function ListingCard({
   listing,
   onPress,
 }: {
-  listing: Listing;
+  listing: CardListing;
   onPress?: () => void;
 }) {
   const [saved, setSaved] = useState(false);
@@ -55,26 +63,28 @@ export function ListingCard({
             contentFit="contain"
             style={{ width: '86%', height: '86%' }}
           />
-          <View className="absolute bottom-1.5 left-1.5 flex-row items-center rounded-md bg-black/60 px-1.5 py-0.5">
-            <Ionicons name="camera" size={12} color="white" />
-            <AppText className="ml-1 text-xs text-white">{listing.photos}</AppText>
-          </View>
+          {!!listing.photos?.length && (
+            <View className="absolute bottom-1.5 left-1.5 flex-row items-center rounded-md bg-black/60 px-1.5 py-0.5">
+              <Ionicons name="camera" size={12} color="white" />
+              <AppText className="ml-1 text-xs text-white">{listing.photos.length}</AppText>
+            </View>
+          )}
         </View>
 
         {/* Specs */}
         <View className="flex-1 justify-center gap-2">
-          {listing.specs.map((spec, i) => (
+          {listing.specs.slice(0, 3).map((spec, i) => (
             <View key={i} className="flex-row items-center">
-              <Ionicons name={spec.icon} size={17} color="#9ca3af" />
-              <AppText className="ml-2 text-[15px] text-foreground">
-                {spec.label}
+              <Ionicons name="ellipse" size={6} color="#9ca3af" />
+              <AppText className="ml-2 text-[15px] text-foreground" numberOfLines={1}>
+                {spec.value}
               </AppText>
             </View>
           ))}
           <View className="flex-row items-center">
             <Ionicons name="location-outline" size={17} color="#EF4444" />
             <AppText className="ml-2 text-[15px] text-muted" numberOfLines={1}>
-              {listing.location}
+              {listing.city}
             </AppText>
           </View>
         </View>

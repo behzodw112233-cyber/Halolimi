@@ -21,6 +21,7 @@ import { HeroUINativeProvider } from 'heroui-native';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ConvexClientProvider } from '../components/convex-provider';
+import { AuthProvider } from '../lib/auth';
 import '../global.css';
 
 SplashScreen.setOptions({ duration: 300, fade: true });
@@ -46,12 +47,14 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <ConvexClientProvider>
+      <AuthProvider>
       <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
         <StatusBar style="auto" />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="language" />
           <Stack.Screen name="intent" />
+          <Stack.Screen name="login" />
           <Stack.Screen name="sell" />
           <Stack.Screen name="create" />
           <Stack.Screen name="promote" />
@@ -63,6 +66,7 @@ export default function RootLayout() {
           <Stack.Screen name="settings" />
         </Stack>
       </HeroUINativeProvider>
+      </AuthProvider>
       </ConvexClientProvider>
     </GestureHandlerRootView>
   );

@@ -6,6 +6,7 @@ import { Button, Typography } from 'heroui-native';
 import { Platform, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Logo } from '../components/logo';
+import { useAuth } from '../lib/auth';
 
 const BRAND_BLUE = '#0A6CFF';
 
@@ -19,6 +20,7 @@ const OPTIONS: { code: string; label: string; icon: IoniconName }[] = [
 
 export default function Intent() {
   const router = useRouter();
+  const { finishOnboarding } = useAuth();
 
   const haptic = () => {
     if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
@@ -31,11 +33,13 @@ export default function Intent() {
       return;
     }
     // 'buy' → search, 'browse' → feed. Both land on the home tabs for now.
+    finishOnboarding();
     router.replace('/home');
   };
 
   const close = () => {
     haptic();
+    finishOnboarding();
     router.replace('/home');
   };
 

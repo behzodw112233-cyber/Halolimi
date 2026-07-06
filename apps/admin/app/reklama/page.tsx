@@ -3,21 +3,23 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Card, Chip } from '@heroui/react';
 import { useMutation, useQuery } from 'convex/react';
-import { Pause, Play, Plus } from 'lucide-react';
+import { Pause, Play, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { CreateAdModal } from '@/components/ads/create-ad-modal';
 import { ChartCard } from '@/components/chart-card';
-import { AreaMini, DonutMini } from '@/components/charts/mini';
+import { BarMini, DonutMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
 import { NumberTicker } from '@/components/ui/number-ticker';
-import { ADS_DAILY, AD_PLACEMENT_SHARE, AD_STATUS_META, type AdStatus } from '@/lib/data';
+import { AD_STATUS_META, type AdStatus } from '@/lib/data';
 
 const fmt = (n: number) => n.toLocaleString('en-US').replace(/,/g, ' ');
 
 export default function ReklamaPage() {
   const ads = useQuery(api.ads.list) ?? [];
+  const overview = useQuery(api.stats.overview);
   const createAd = useMutation(api.ads.create);
   const setStatus = useMutation(api.ads.setStatus);
+  const removeAd = useMutation(api.ads.remove);
   const [open, setOpen] = useState(false);
 
   const stats = useMemo(() => {
@@ -27,6 +29,14 @@ export default function ReklamaPage() {
     const spent = ads.reduce((s, a) => s + a.spent, 0);
     return { active, impressions, clicks, spent };
   }, [ads]);
+
+  const byCampaign = overview?.adsByCampaign ?? [];
+  const placementShare = overview
+    ? [
+        { name: '📱 Ilova', value: overview.adPlacements.app, color: '#0A6CFF' },
+        { name: '🤖 Bot', value: overview.adPlacements.bot, color: '#16A34A' },
+      ]
+    : [];
 
   const toggleStatus = (id: (typeof ads)[number]['_id'], current: AdStatus) =>
     setStatus({ id, status: current === 'active' ? 'paused' : 'active' });
@@ -66,12 +76,12 @@ export default function ReklamaPage() {
       {/* Charts */}
       <div className="mb-6 grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <ChartCard title="Koʻrsatishlar dinamikasi" subtitle="Soʻnggi 7 kun">
-            <AreaMini data={ADS_DAILY} color="#0A6CFF" />
+          <ChartCard title="Kampaniya boʻyicha koʻrsatishlar">
+            <BarMini data={byCampaign} color="#0A6CFF" />
           </ChartCard>
         </div>
         <ChartCard title="Joylashuv boʻyicha">
-          <DonutMini data={AD_PLACEMENT_SHARE} />
+          <DonutMini data={placementShare} />
         </ChartCard>
       </div>
 
@@ -138,17 +148,28 @@ export default function ReklamaPage() {
                         </div>
                       </td>
                       <td className="px-5 py-3.5 text-right">
-                        {a.status !== 'ended' && (
+                        <div className="flex justify-end gap-2">
+                          {a.status !== 'ended' && (
+                            <Button
+                              variant={a.status === 'active' ? 'tertiary' : 'primary'}
+                              size="sm"
+                              className="gap-1"
+                              onPress={() => toggleStatus(a._id, a.status)}
+                            >
+                              {a.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
+                              {a.status === 'active' ? 'Pauza' : 'Davom'}
+                            </Button>
+                          )}
                           <Button
-                            variant={a.status === 'active' ? 'tertiary' : 'primary'}
+                            variant="danger-soft"
                             size="sm"
-                            className="gap-1"
-                            onPress={() => toggleStatus(a._id, a.status)}
+                            onPress={() => {
+                              if (confirm(`"${a.headline}" reklamasini oʻchirasizmi?`)) removeAd({ id: a._id });
+                            }}
                           >
-                            {a.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
-                            {a.status === 'active' ? 'Pauza' : 'Davom'}
+                            <Trash2 size={14} />
                           </Button>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   );

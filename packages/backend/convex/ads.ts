@@ -48,3 +48,8 @@ export const setStatus = mutation({
   args: { id: v.id('ads'), status: adStatus },
   handler: (ctx, { id, status }) => ctx.db.patch(id, { status }),
 });
+
+export const remove = mutation({
+  args: { id: v.id('ads') },
+  handler: (ctx, { id }) => ctx.db.delete(id),
+});

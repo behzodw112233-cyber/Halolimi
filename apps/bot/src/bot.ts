@@ -29,6 +29,8 @@ interface SessionData {
   saved: string[];
   browse: { category?: string; index: number };
   sell?: SellDraft;
+  /** Pending app-login handshake token (set when opened via t.me/bot?start=<token>). */
+  authToken?: string;
 }
 
 type MyContext = Context & SessionFlavor<SessionData>;
@@ -90,6 +92,18 @@ export function createBot(token: string) {
 
   // ---------- start / language ----------
   bot.command('start', async (ctx) => {
+    // Deep-link login: the app opened us with `?start=<handshake token>`.
+    const payload = ctx.match?.toString().trim();
+    if (payload) {
+      ctx.session.authToken = payload;
+      await ctx.reply(
+        '🔐 <b>Halolmi ilovasiga kirish</b>\n\n' +
+          'Tasdiqlash uchun telefon raqamingizni ulashing 👇\n' +
+          '<i>Raqamingiz faqat hisobingizni yaratish uchun ishlatiladi.</i>',
+        { parse_mode: 'HTML', reply_markup: phoneRequestKeyboard() }
+      );
+      return;
+    }
     await ctx.reply(
       '👋 <b>Assalomu alaykum!</b>\n\nHalolmi — hayvonlar bozori botiga xush kelibsiz.\nTilni tanlang / Выберите язык:',
       { parse_mode: 'HTML', reply_markup: languageKeyboard() }
@@ -307,6 +321,29 @@ export function createBot(token: string) {
   }
 
   bot.on('message:contact', async (ctx) => {
+    // App-login handshake takes priority over the sell wizard.
+    if (ctx.session.authToken) {
+      const token = ctx.session.authToken;
+      ctx.session.authToken = undefined;
+      try {
+        await convex.mutation(api.authTelegram.verify, {
+          token,
+          phone: ctx.message.contact.phone_number,
+          name: ctx.from?.first_name,
+        });
+        await ctx.reply(
+          '✅ <b>Tayyor!</b>\n\nHalolmi ilovasiga qayting — siz avtomatik tarzda tizimga kirdingiz.',
+          { parse_mode: 'HTML', reply_markup: { remove_keyboard: true } }
+        );
+        await ctx.reply('🏠 Asosiy menyu', { reply_markup: mainMenuKeyboard() });
+      } catch {
+        await ctx.reply('❌ Kirishda xatolik. Ilovada qaytadan urinib koʻring.', {
+          reply_markup: { remove_keyboard: true },
+        });
+      }
+      return;
+    }
+
     const draft = ctx.session.sell;
     if (draft?.step === 'phone') {
       draft.phone = ctx.message.contact.phone_number;

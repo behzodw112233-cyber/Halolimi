@@ -3,16 +3,20 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Card, Chip } from '@heroui/react';
 import { useMutation, useQuery } from 'convex/react';
-import { Flag } from 'lucide-react';
+import { Flag, Trash2 } from 'lucide-react';
 import { ChartCard } from '@/components/chart-card';
 import { AreaMini, BarMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
-import { REPORT_DAILY, REPORT_REASONS } from '@/lib/data';
-
 export default function ShikoyatlarPage() {
   const reports = useQuery(api.reports.list) ?? [];
+  const overview = useQuery(api.stats.overview);
   const resolve = useMutation(api.reports.resolve);
+  const removeReport = useMutation(api.reports.remove);
   const newCount = reports.filter((r) => r.status === 'new').length;
+
+  const reasons =
+    overview?.reportReasons.map((r) => ({ x: r.reason, v: r.count })) ?? [];
+  const daily = overview?.daily.reports ?? [];
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeader
@@ -28,10 +32,10 @@ export default function ShikoyatlarPage() {
       {/* Charts */}
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
         <ChartCard title="Sabab boʻyicha shikoyatlar">
-          <BarMini data={REPORT_REASONS} color="#EF4444" />
+          <BarMini data={reasons} color="#EF4444" />
         </ChartCard>
         <ChartCard title="Kunlik shikoyatlar" subtitle="Soʻnggi 7 kun">
-          <AreaMini data={REPORT_DAILY} color="#EF4444" />
+          <AreaMini data={daily} color="#EF4444" />
         </ChartCard>
       </div>
 
@@ -57,10 +61,18 @@ export default function ShikoyatlarPage() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Button variant="secondary" size="sm">Eʼlonni koʻrish</Button>
                 {r.status === 'new' && (
                   <Button variant="primary" size="sm" onPress={() => resolve({ id: r._id })}>Hal qilish</Button>
                 )}
+                <Button
+                  variant="tertiary"
+                  size="sm"
+                  onPress={() => {
+                    if (confirm('Shikoyatni oʻchirasizmi?')) removeReport({ id: r._id });
+                  }}
+                >
+                  <Trash2 size={15} />
+                </Button>
               </div>
             </Card.Content>
           </Card>

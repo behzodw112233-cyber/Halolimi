@@ -1,21 +1,32 @@
 'use client';
 
 import { api } from '@halolmia/backend/convex/_generated/api';
-import { Card, Chip } from '@heroui/react';
-import { useQuery } from 'convex/react';
+import { Button, Card, Chip } from '@heroui/react';
+import { useMutation, useQuery } from 'convex/react';
+import { Check, Trash2 } from 'lucide-react';
 import { ChartCard } from '@/components/chart-card';
 import { AreaMini, DonutMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
-import { PAY_DAILY, PAY_METHODS } from '@/lib/data';
+import { CHART_PALETTE, METHOD_COLOR } from '@/lib/data';
 
-const METHOD_COLOR: Record<string, string> = {
-  Uzcard: '#1E3A8A',
-  Payme: '#33CCCC',
-  Click: '#0A6CFF',
-};
+const fmtSum = (n: number) => `${n.toLocaleString('en-US').replace(/,/g, ' ')} soʻm`;
 
 export default function TolovlarPage() {
   const payments = useQuery(api.payments.list) ?? [];
+  const overview = useQuery(api.stats.overview);
+  const setStatus = useMutation(api.payments.setStatus);
+  const removePayment = useMutation(api.payments.remove);
+
+  // daily.revenue values are already in thousands of soʻm
+  const daily = (overview?.daily.revenue ?? []).map((d) => ({ x: d.x, v: Math.round(d.v) }));
+  const methods =
+    overview?.paymentMethods.map((m, i) => ({
+      name: m.method,
+      value: m.count,
+      color: METHOD_COLOR[m.method] ?? CHART_PALETTE[i % CHART_PALETTE.length],
+    })) ?? [];
+  const okCount = overview?.paymentMethods.reduce((s, m) => s + m.count, 0) ?? 0;
+
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Toʻlovlar" subtitle="Reklama va promo toʻlovlari tarixi" />
@@ -23,9 +34,9 @@ export default function TolovlarPage() {
       {/* Summary */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {[
-          { label: 'Bugungi tushum', value: '188 000 soʻm' },
-          { label: 'Oylik tushum', value: '24.5M soʻm' },
-          { label: 'Muvaffaqiyatli toʻlovlar', value: '1 204' },
+          { label: 'Bugungi tushum', value: fmtSum(overview?.totals.revenueToday ?? 0) },
+          { label: 'Jami tushum', value: fmtSum(overview?.totals.revenue ?? 0) },
+          { label: 'Muvaffaqiyatli toʻlovlar', value: String(okCount) },
         ].map((s) => (
           <Card key={s.label} className="rounded-2xl border border-neutral-200 bg-white shadow-none">
             <Card.Content className="p-5">
@@ -38,11 +49,11 @@ export default function TolovlarPage() {
 
       {/* Charts */}
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
-        <ChartCard title="Kunlik tushum (mln soʻm)" subtitle="Soʻnggi 7 kun">
-          <AreaMini data={PAY_DAILY} color="#16A34A" />
+        <ChartCard title="Kunlik tushum (ming soʻm)" subtitle="Soʻnggi 7 kun">
+          <AreaMini data={daily} color="#16A34A" />
         </ChartCard>
         <ChartCard title="Toʻlov usullari ulushi">
-          <DonutMini data={PAY_METHODS} />
+          <DonutMini data={methods} />
         </ChartCard>
       </div>
 
@@ -59,6 +70,7 @@ export default function TolovlarPage() {
                   <th className="px-5 py-3 font-medium">Summa</th>
                   <th className="px-5 py-3 font-medium">Holat</th>
                   <th className="px-5 py-3 font-medium">Sana</th>
+                  <th className="px-5 py-3 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
@@ -82,6 +94,24 @@ export default function TolovlarPage() {
                       </Chip>
                     </td>
                     <td className="px-5 py-3.5 text-neutral-500">{p.date}</td>
+                    <td className="px-5 py-3.5 text-right">
+                      <div className="flex justify-end gap-2">
+                        {p.status === 'pending' && (
+                          <Button variant="primary" size="sm" className="gap-1" onPress={() => setStatus({ id: p._id, status: 'success' })}>
+                            <Check size={14} /> Tasdiqlash
+                          </Button>
+                        )}
+                        <Button
+                          variant="tertiary"
+                          size="sm"
+                          onPress={() => {
+                            if (confirm('Toʻlovni oʻchirasizmi?')) removePayment({ id: p._id });
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>

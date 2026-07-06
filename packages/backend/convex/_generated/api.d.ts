@@ -8,12 +8,20 @@
  * @module
  */
 
+import type * as admin from "../admin.js";
 import type * as ads from "../ads.js";
+import type * as authTelegram from "../authTelegram.js";
 import type * as categories from "../categories.js";
+import type * as files from "../files.js";
 import type * as listings from "../listings.js";
+import type * as messages from "../messages.js";
+import type * as notifications from "../notifications.js";
 import type * as payments from "../payments.js";
 import type * as reports from "../reports.js";
+import type * as saved from "../saved.js";
 import type * as seed from "../seed.js";
+import type * as settings from "../settings.js";
+import type * as stats from "../stats.js";
 import type * as users from "../users.js";
 
 import type {
@@ -23,12 +31,20 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  admin: typeof admin;
   ads: typeof ads;
+  authTelegram: typeof authTelegram;
   categories: typeof categories;
+  files: typeof files;
   listings: typeof listings;
+  messages: typeof messages;
+  notifications: typeof notifications;
   payments: typeof payments;
   reports: typeof reports;
+  saved: typeof saved;
   seed: typeof seed;
+  settings: typeof settings;
+  stats: typeof stats;
   users: typeof users;
 }>;
 

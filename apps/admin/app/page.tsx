@@ -2,22 +2,84 @@
 
 import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Card, Chip } from '@heroui/react';
-import { useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { Check, Download, X } from 'lucide-react';
 import { EvilComposedChart } from '@/components/charts/composed-chart';
-import { EvilSankeyChart } from '@/components/charts/sankey-chart';
+import { EvilSankeyChart, type SankeyData } from '@/components/charts/sankey-chart';
 import { StatCard } from '@/components/stat-card';
 import {
-  CATEGORY_SHARE,
   catVisual,
-  STATS,
+  STATUS_COLOR,
+  STAT_META,
   STATUS_META,
+  type Stat,
 } from '@/lib/data';
 
 export default function Dashboard() {
   const listings = useQuery(api.listings.list, {}) ?? [];
+  const overview = useQuery(api.stats.overview);
+  const setStatus = useMutation(api.listings.setStatus);
+
   const recent = listings.slice(0, 5);
   const queue = listings.filter((l) => l.status === 'pending');
+
+  // Stat cards — real values mapped onto presentation metadata.
+  const stats: Stat[] = STAT_META.map((m) => ({
+    label: m.label,
+    icon: m.icon,
+    tint: m.tint,
+    suffix: m.suffix,
+    decimals: m.decimals,
+    delta: '',
+    up: true,
+    value: overview
+      ? m.key === 'listings'
+        ? overview.totals.listings
+        : m.key === 'pending'
+          ? overview.totals.pending
+          : m.key === 'users'
+            ? overview.totals.users
+            : overview.totals.revenue
+      : 0,
+  }));
+
+  // Category share (% of total) from real counts.
+  const totalCat = overview?.byCategory.reduce((s, c) => s + c.count, 0) ?? 0;
+  const categoryShare =
+    overview?.byCategory.map((c) => ({
+      name: catVisual(c.slug).name,
+      color: catVisual(c.slug).grad[1],
+      value: totalCat ? Math.round((c.count / totalCat) * 100) : 0,
+    })) ?? [];
+
+  // Composed chart: real daily listings (bars) + revenue in mln soʻm (line).
+  const composed =
+    overview?.daily.listings.map((d, i) => ({
+      day: d.x,
+      elonlar: d.v,
+      daromad: +((overview.daily.revenue[i]?.v ?? 0) / 1000).toFixed(1), // ming → mln
+    })) ?? [];
+
+  // Sankey: category → status, built from the real matrix.
+  const sankey: SankeyData = (() => {
+    if (!overview) return { nodes: [], links: [] };
+    const cats = overview.categoryStatus;
+    const nodes = [
+      ...cats.map((c) => ({ name: catVisual(c.slug).name, color: catVisual(c.slug).grad[1] })),
+      { name: 'Faol', color: STATUS_COLOR.active },
+      { name: 'Tekshiruvda', color: STATUS_COLOR.pending },
+      { name: 'Rad etilgan', color: STATUS_COLOR.rejected },
+    ];
+    const base = cats.length;
+    const links: SankeyData['links'] = [];
+    cats.forEach((c, i) => {
+      if (c.active) links.push({ source: i, target: base, value: c.active });
+      if (c.pending) links.push({ source: i, target: base + 1, value: c.pending });
+      if (c.rejected) links.push({ source: i, target: base + 2, value: c.rejected });
+    });
+    return { nodes, links };
+  })();
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       {/* Page header */}
@@ -25,7 +87,7 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">Boshqaruv paneli</h1>
           <p className="mt-0.5 text-sm text-neutral-500">
-            Xush kelibsiz! Bugungi holat — 4-iyul, 2026.
+            Xush kelibsiz! Jonli statistika.
           </p>
         </div>
         <Button variant="secondary" className="gap-2">
@@ -36,7 +98,7 @@ export default function Dashboard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {STATS.map((s) => (
+        {stats.map((s) => (
           <StatCard key={s.label} stat={s} />
         ))}
       </div>
@@ -59,12 +121,9 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
-            <Chip variant="soft" color="success" size="sm">
-              +14%
-            </Chip>
           </Card.Header>
           <Card.Content className="p-3">
-            <EvilComposedChart />
+            <EvilComposedChart data={composed} />
           </Card.Content>
         </Card>
 
@@ -76,7 +135,10 @@ export default function Dashboard() {
             </Card.Title>
           </Card.Header>
           <Card.Content className="space-y-4 p-5">
-            {CATEGORY_SHARE.map((c) => (
+            {categoryShare.length === 0 && (
+              <p className="py-6 text-center text-sm text-neutral-400">Maʼlumot yoʻq</p>
+            )}
+            {categoryShare.map((c) => (
               <div key={c.name}>
                 <div className="mb-1.5 flex justify-between text-sm">
                   <span className="text-neutral-600">{c.name}</span>
@@ -107,7 +169,7 @@ export default function Dashboard() {
           </div>
         </Card.Header>
         <Card.Content className="p-3">
-          <EvilSankeyChart />
+          <EvilSankeyChart data={sankey} />
         </Card.Content>
       </Card>
 
@@ -158,6 +220,13 @@ export default function Dashboard() {
                       </tr>
                     );
                   })}
+                  {recent.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-5 py-8 text-center text-sm text-neutral-400">
+                        Hali eʼlon yoʻq
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -186,11 +255,21 @@ export default function Dashboard() {
                 </p>
                 <p className="mt-0.5 text-xs text-neutral-400">{new Date(l.createdAt).toLocaleDateString('ru-RU')}</p>
                 <div className="mt-2.5 flex gap-2">
-                  <Button variant="primary" size="sm" className="flex-1 gap-1">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="flex-1 gap-1"
+                    onPress={() => setStatus({ id: l._id, status: 'active' })}
+                  >
                     <Check size={15} />
                     Tasdiqlash
                   </Button>
-                  <Button variant="danger-soft" size="sm" className="flex-1 gap-1">
+                  <Button
+                    variant="danger-soft"
+                    size="sm"
+                    className="flex-1 gap-1"
+                    onPress={() => setStatus({ id: l._id, status: 'rejected' })}
+                  >
                     <X size={15} />
                     Rad etish
                   </Button>

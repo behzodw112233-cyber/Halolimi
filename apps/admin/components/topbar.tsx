@@ -1,6 +1,15 @@
+'use client';
+
+import { api } from '@halolmia/backend/convex/_generated/api';
+import { useQuery } from 'convex/react';
 import { Bell, Search } from 'lucide-react';
 
 export function Topbar() {
+  const overview = useQuery(api.stats.overview);
+  const pendingCount = overview
+    ? overview.totals.pending + overview.totals.reportsNew
+    : 0;
+
   return (
     <header className="flex h-16 items-center gap-4 border-b border-neutral-200 bg-white px-6">
       {/* Search */}
@@ -17,7 +26,11 @@ export function Topbar() {
       {/* Notifications */}
       <button className="relative flex h-10 w-10 items-center justify-center rounded-xl text-neutral-500 hover:bg-neutral-100">
         <Bell size={20} />
-        <span className="absolute right-2.5 top-2.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
+        {pendingCount > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white ring-2 ring-white">
+            {pendingCount > 9 ? '9+' : pendingCount}
+          </span>
+        )}
       </button>
 
       {/* Profile */}

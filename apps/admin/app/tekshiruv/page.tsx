@@ -7,12 +7,21 @@ import { Check, Eye, X } from 'lucide-react';
 import { ChartCard } from '@/components/chart-card';
 import { BarMini, DonutMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
-import { catVisual, MOD_DAILY, MOD_RESULT } from '@/lib/data';
+import { catVisual, STATUS_COLOR } from '@/lib/data';
 
 export default function TekshiruvPage() {
   const listings = useQuery(api.listings.list, {}) ?? [];
+  const overview = useQuery(api.stats.overview);
   const setStatus = useMutation(api.listings.setStatus);
   const pending = listings.filter((l) => l.status === 'pending');
+
+  const daily = overview?.daily.moderated ?? [];
+  const result = overview
+    ? [
+        { name: 'Tasdiqlangan', value: overview.byStatus.active, color: STATUS_COLOR.active },
+        { name: 'Rad etilgan', value: overview.byStatus.rejected, color: STATUS_COLOR.rejected },
+      ]
+    : [];
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -29,10 +38,10 @@ export default function TekshiruvPage() {
       {/* Charts */}
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
         <ChartCard title="Kunlik tekshirilgan eʼlonlar" subtitle="Soʻnggi 7 kun">
-          <BarMini data={MOD_DAILY} color="#F59E0B" />
+          <BarMini data={daily} color="#F59E0B" />
         </ChartCard>
         <ChartCard title="Tekshiruv natijasi">
-          <DonutMini data={MOD_RESULT} />
+          <DonutMini data={result} />
         </ChartCard>
       </div>
 
@@ -48,10 +57,15 @@ export default function TekshiruvPage() {
             <Card key={l._id} className="rounded-2xl border border-neutral-200 bg-white shadow-none">
               <Card.Content className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
                 <div
-                  className="flex h-24 w-full items-center justify-center rounded-xl sm:w-32"
+                  className="flex h-24 w-full items-center justify-center overflow-hidden rounded-xl sm:w-32"
                   style={{ background: `linear-gradient(135deg, ${v.grad[0]}, ${v.grad[1]})` }}
                 >
-                  <span className="text-4xl">{v.emoji}</span>
+                  {l.photoUrls?.[0] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={l.photoUrls[0]} alt={l.title} className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-4xl">{v.emoji}</span>
+                  )}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">

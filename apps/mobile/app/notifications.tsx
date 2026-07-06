@@ -1,13 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useEffect } from 'react';
 import { ScrollView, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../components/app-text';
-import { NOTIFICATIONS } from '../constants/notifications';
 import { BRAND_BLUE } from '../constants/theme';
+import { useNotifications } from '../lib/notifications';
+
+const relTime = (ts: number) => {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return 'Hozir';
+  if (mins < 60) return `${mins} daqiqa oldin`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} soat oldin`;
+  const days = Math.floor(hrs / 24);
+  return days === 1 ? 'Kecha' : `${days} kun oldin`;
+};
 
 export default function Notifications() {
   const router = useRouter();
+  const { items, markSeen } = useNotifications();
+  const notifications = items ?? [];
+
+  // Opening the screen clears the unread badge.
+  useEffect(() => {
+    if (items) markSeen();
+  }, [items, markSeen]);
 
   return (
     <View className="flex-1 bg-background">
@@ -27,7 +45,7 @@ export default function Notifications() {
           </AppText>
         </View>
 
-        {NOTIFICATIONS.length === 0 ? (
+        {notifications.length === 0 ? (
           <View className="flex-1 items-center justify-center px-10">
             <Ionicons name="notifications-off-outline" size={48} color="#9ca3af" />
             <AppText className="mt-3 text-center text-base text-muted">
@@ -36,33 +54,25 @@ export default function Notifications() {
           </View>
         ) : (
           <ScrollView showsVerticalScrollIndicator={false}>
-            {NOTIFICATIONS.map((n) => (
+            {notifications.map((n) => (
               <View
-                key={n.id}
+                key={n._id}
                 className="flex-row border-b border-border px-4 py-4"
-                style={{ backgroundColor: n.unread ? BRAND_BLUE + '0A' : 'transparent' }}
               >
                 <View
                   className="mr-3 h-11 w-11 items-center justify-center rounded-full"
                   style={{ backgroundColor: BRAND_BLUE + '14' }}
                 >
-                  <Ionicons name={n.icon} size={22} color={BRAND_BLUE} />
+                  <Ionicons name={n.icon as keyof typeof Ionicons.glyphMap} size={22} color={BRAND_BLUE} />
                 </View>
                 <View className="flex-1">
-                  <View className="flex-row items-center">
-                    <AppText className="flex-1 font-semibold text-[15px] text-foreground">
-                      {n.title}
-                    </AppText>
-                    {n.unread && (
-                      <View
-                        style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' }}
-                      />
-                    )}
-                  </View>
+                  <AppText className="font-semibold text-[15px] text-foreground">
+                    {n.title}
+                  </AppText>
                   <AppText className="mt-0.5 text-sm leading-5 text-muted">
                     {n.body}
                   </AppText>
-                  <AppText className="mt-1 text-xs text-muted">{n.time}</AppText>
+                  <AppText className="mt-1 text-xs text-muted">{relTime(n.createdAt)}</AppText>
                 </View>
               </View>
             ))}

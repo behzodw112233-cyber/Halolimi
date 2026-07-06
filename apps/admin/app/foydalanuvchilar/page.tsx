@@ -1,27 +1,40 @@
 'use client';
 
+import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Card, Chip } from '@heroui/react';
+import { useMutation, useQuery } from 'convex/react';
+import { Trash2 } from 'lucide-react';
 import { ChartCard } from '@/components/chart-card';
 import { AreaMini, BarMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
-import { USERS, USER_ACTIVITY, USER_MONTHLY } from '@/lib/data';
-
 function initials(name: string) {
   return name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
 }
 
 export default function FoydalanuvchilarPage() {
+  const users = useQuery(api.users.list) ?? [];
+  const overview = useQuery(api.stats.overview);
+  const setStatus = useMutation(api.users.setStatus);
+  const removeUser = useMutation(api.users.remove);
+
+  const monthly = overview?.usersMonthly ?? [];
+  const activity = overview
+    ? [
+        { x: 'Faol', v: overview.userActivity.active },
+        { x: 'Bloklangan', v: overview.userActivity.blocked },
+      ]
+    : [];
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader title="Foydalanuvchilar" subtitle={`Jami ${USERS.length} ta roʻyxatdan oʻtgan foydalanuvchi`} />
+      <PageHeader title="Foydalanuvchilar" subtitle={`Jami ${users.length} ta roʻyxatdan oʻtgan foydalanuvchi`} />
 
       {/* Charts */}
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
         <ChartCard title="Foydalanuvchilar oʻsishi" subtitle="Soʻnggi 6 oy">
-          <AreaMini data={USER_MONTHLY} color="#16A34A" />
+          <AreaMini data={monthly} color="#16A34A" />
         </ChartCard>
         <ChartCard title="Faollik boʻyicha">
-          <BarMini data={USER_ACTIVITY} />
+          <BarMini data={activity} />
         </ChartCard>
       </div>
 
@@ -40,8 +53,8 @@ export default function FoydalanuvchilarPage() {
                 </tr>
               </thead>
               <tbody>
-                {USERS.map((u) => (
-                  <tr key={u.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
+                {users.map((u) => (
+                  <tr key={u._id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-xs font-semibold text-white">
@@ -49,7 +62,6 @@ export default function FoydalanuvchilarPage() {
                         </div>
                         <div>
                           <p className="font-medium text-neutral-900">{u.name}</p>
-                          <p className="text-xs text-neutral-400">{u.id}</p>
                         </div>
                       </div>
                     </td>
@@ -62,9 +74,24 @@ export default function FoydalanuvchilarPage() {
                       </Chip>
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      <Button variant={u.status === 'active' ? 'danger-soft' : 'secondary'} size="sm">
-                        {u.status === 'active' ? 'Bloklash' : 'Ochish'}
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant={u.status === 'active' ? 'danger-soft' : 'secondary'}
+                          size="sm"
+                          onPress={() => setStatus({ id: u._id, status: u.status === 'active' ? 'blocked' : 'active' })}
+                        >
+                          {u.status === 'active' ? 'Bloklash' : 'Ochish'}
+                        </Button>
+                        <Button
+                          variant="tertiary"
+                          size="sm"
+                          onPress={() => {
+                            if (confirm(`"${u.name}" foydalanuvchisini oʻchirasizmi?`)) removeUser({ id: u._id });
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}

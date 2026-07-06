@@ -1,7 +1,11 @@
 'use client';
 
 import { ResponsiveContainer, Sankey, Tooltip } from 'recharts';
-import { SANKEY } from '@/lib/data';
+
+export interface SankeyData {
+  nodes: { name: string; color: string }[];
+  links: { source: number; target: number; value: number }[];
+}
 
 // Custom node: colored rounded rect + label placed on the outer side.
 function SankeyNode(props: any) {
@@ -67,11 +71,18 @@ function SankeyTooltip({ active, payload }: any) {
   );
 }
 
-export function EvilSankeyChart() {
+export function EvilSankeyChart({ data }: { data: SankeyData }) {
+  if (!data.links.length) {
+    return (
+      <div className="flex h-[280px] items-center justify-center text-sm text-neutral-400">
+        Maʼlumot yoʻq
+      </div>
+    );
+  }
   return (
     <ResponsiveContainer width="100%" height={280}>
       <Sankey
-        data={SANKEY}
+        data={data}
         node={<SankeyNode />}
         link={<SankeyLink />}
         nodePadding={26}

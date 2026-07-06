@@ -10,22 +10,19 @@ import { AppText } from '../../components/app-text';
 import { Logo } from '../../components/logo';
 import { ListingCard } from '../../components/listing-card';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
-import { HAS_UNREAD } from '../../constants/notifications';
 import { PROMOS, PROMO_IMAGES } from '../../constants/promos';
 import { BRAND_BLUE } from '../../constants/theme';
-
-const HOME_CATEGORIES = [
-  { id: 'cattle', name: 'Qoramol' },
-  { id: 'sheep', name: 'Qoʻy-echki' },
-  { id: 'horses', name: 'Otlar' },
-  { id: 'poultry', name: 'Parrandalar' },
-  { id: 'pets', name: 'Uy hayvonlari' },
-];
+import { useNotifications } from '../../lib/notifications';
+import { useSaved } from '../../lib/saved';
 
 export default function Home() {
   const router = useRouter();
   const listings = useQuery(api.listings.listActive, {}) ?? [];
   const ads = useQuery(api.ads.byPlacement, { placement: 'app' }) ?? [];
+  const categories = useQuery(api.categories.list) ?? [];
+  const homeCategories = categories.slice(0, 5);
+  const { hasUnread } = useNotifications();
+  const { isSaved, toggleSave } = useSaved();
 
   return (
     <View className="flex-1 bg-background">
@@ -39,7 +36,7 @@ export default function Home() {
             <Logo className="text-[#0F172A]" size={22} />
             <Pressable hitSlop={8} onPress={() => router.push('/notifications')}>
               <Ionicons name="notifications-outline" size={26} color="#0F172A" />
-              {HAS_UNREAD && (
+              {hasUnread && (
                 <View
                   style={{
                     position: 'absolute',
@@ -85,9 +82,9 @@ export default function Home() {
               </View>
             </Pressable>
 
-            {HOME_CATEGORIES.map((c) => (
+            {homeCategories.map((c) => (
               <Pressable
-                key={c.id}
+                key={c._id}
                 onPress={() => router.push('/sell')}
                 style={{ width: '31.5%', height: 92 }}
                 className="mb-2.5 overflow-hidden rounded-2xl bg-surface-secondary active:opacity-80"
@@ -95,11 +92,13 @@ export default function Home() {
                 <AppText className="px-2.5 pt-2 text-xs font-medium leading-4 text-foreground">
                   {c.name}
                 </AppText>
-                <Image
-                  source={CATEGORY_IMAGES[c.id]}
-                  contentFit="contain"
-                  style={{ position: 'absolute', right: 2, bottom: 2, width: '62%', height: '62%' }}
-                />
+                {CATEGORY_IMAGES[c.slug] && (
+                  <Image
+                    source={CATEGORY_IMAGES[c.slug]}
+                    contentFit="contain"
+                    style={{ position: 'absolute', right: 2, bottom: 2, width: '62%', height: '62%' }}
+                  />
+                )}
               </Pressable>
             ))}
           </View>
@@ -208,7 +207,14 @@ export default function Home() {
             {listings.map((listing) => (
               <ListingCard
                 key={listing._id}
-                listing={listing}
+                listing={{
+                  ...listing,
+                  promoted: !!listing.boostedUntil && listing.boostedUntil > Date.now(),
+                }}
+                saved={isSaved(listing._id)}
+                onToggleSave={() => {
+                  if (!toggleSave(listing._id)) router.push('/login');
+                }}
                 onPress={() => router.push({ pathname: '/listing/[id]', params: { id: listing._id } })}
               />
             ))}

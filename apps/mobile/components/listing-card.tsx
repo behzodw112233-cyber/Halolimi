@@ -12,18 +12,28 @@ export interface CardListing {
   category: string;
   city: string;
   specs: { label: string; value: string }[];
-  photos?: string[];
+  photoUrls?: string[];
+  promoted?: boolean;
 }
 
 export function ListingCard({
   listing,
   onPress,
+  saved: savedProp,
+  onToggleSave,
 }: {
   listing: CardListing;
   onPress?: () => void;
+  /** Controlled saved state. When `onToggleSave` is provided this is authoritative. */
+  saved?: boolean;
+  onToggleSave?: () => void;
 }) {
-  const [saved, setSaved] = useState(false);
-  const image = CATEGORY_IMAGES[listing.category];
+  const [localSaved, setLocalSaved] = useState(false);
+  const controlled = !!onToggleSave;
+  const saved = controlled ? !!savedProp : localSaved;
+  const toggleSave = onToggleSave ?? (() => setLocalSaved((s) => !s));
+  const photo = listing.photoUrls?.[0];
+  const image = photo ? { uri: photo } : CATEGORY_IMAGES[listing.category];
 
   return (
     <Pressable
@@ -32,14 +42,21 @@ export function ListingCard({
     >
       {/* Title + favorite */}
       <View className="flex-row items-start justify-between">
-        <AppText
-          className="mr-3 flex-1 font-semibold text-[15px] leading-5"
-          style={{ color: BRAND_BLUE }}
-          numberOfLines={1}
-        >
-          {listing.title}
-        </AppText>
-        <Pressable onPress={() => setSaved((s) => !s)} hitSlop={10}>
+        <View className="mr-3 flex-1">
+          {listing.promoted && (
+            <View className="mb-1 self-start rounded-md px-1.5 py-0.5" style={{ backgroundColor: '#FCD34D' }}>
+              <AppText className="text-[11px] font-bold" style={{ color: '#78350F' }}>TOP</AppText>
+            </View>
+          )}
+          <AppText
+            className="font-semibold text-[15px] leading-5"
+            style={{ color: BRAND_BLUE }}
+            numberOfLines={1}
+          >
+            {listing.title}
+          </AppText>
+        </View>
+        <Pressable onPress={toggleSave} hitSlop={10}>
           <Ionicons
             name={saved ? 'heart' : 'heart-outline'}
             size={24}
@@ -60,13 +77,13 @@ export function ListingCard({
         >
           <Image
             source={image}
-            contentFit="contain"
-            style={{ width: '86%', height: '86%' }}
+            contentFit={photo ? 'cover' : 'contain'}
+            style={photo ? { width: '100%', height: '100%' } : { width: '86%', height: '86%' }}
           />
-          {!!listing.photos?.length && (
+          {!!listing.photoUrls?.length && (
             <View className="absolute bottom-1.5 left-1.5 flex-row items-center rounded-md bg-black/60 px-1.5 py-0.5">
               <Ionicons name="camera" size={12} color="white" />
-              <AppText className="ml-1 text-xs text-white">{listing.photos.length}</AppText>
+              <AppText className="ml-1 text-xs text-white">{listing.photoUrls.length}</AppText>
             </View>
           )}
         </View>

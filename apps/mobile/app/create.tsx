@@ -3,6 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { api } from '@halolmia/backend/convex/_generated/api';
+import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { useMutation } from 'convex/react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -19,6 +20,7 @@ import { AppText } from '../components/app-text';
 import { BREEDS, CATEGORY_LABELS } from '../constants/breeds';
 import { UZ_CITIES } from '../constants/cities';
 import { BRAND_BLUE } from '../constants/theme';
+import { useAuth } from '../lib/auth';
 
 const STEP_COUNT = 8;
 
@@ -43,6 +45,7 @@ const tap = () => {
 export default function Create() {
   const router = useRouter();
   const { category = 'cattle' } = useLocalSearchParams<{ category?: string }>();
+  const { userId, user, login } = useAuth();
 
   const [step, setStep] = useState(0);
   const [breed, setBreed] = useState<string | null>(null);
@@ -112,11 +115,49 @@ export default function Create() {
   };
 
   const createListing = useMutation(api.listings.create);
+  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+
+  // Upload each locally-picked photo to Convex storage, returning its storage id.
+  const uploadPhotos = async (): Promise<Id<'_storage'>[]> => {
+    const ids: Id<'_storage'>[] = [];
+    for (const uri of photos) {
+      try {
+        const res = await fetch(uri);
+        const blob = await res.blob();
+        const uploadUrl = await generateUploadUrl();
+        const upload = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': blob.type || 'image/jpeg' },
+          body: blob,
+        });
+        const { storageId } = await upload.json();
+        if (storageId) ids.push(storageId as Id<'_storage'>);
+      } catch {
+        /* skip failed uploads */
+      }
+    }
+    return ids;
+  };
 
   const publish = async () => {
     setOtpOpen(false);
+    let newId: string | undefined;
     try {
-      await createListing({
+      // Establish (or repair) the session from the phone entered in this flow so
+      // the listing is owned by the user and shows up in their profile afterwards.
+      let ownerId = userId;
+      if (!ownerId) {
+        const digits = phone.replace(/\D/g, '');
+        if (digits.length >= 9) {
+          try {
+            ownerId = await login('+998' + digits.slice(-9), user?.name);
+          } catch {
+            /* login failed — publish anonymously */
+          }
+        }
+      }
+      const photoIds = await uploadPhotos();
+      newId = await createListing({
         title: `${catLabel}${breed ? ' · ' + breed : ''}`,
         price: `${price || '0'} ${currency === 'usd' ? 'y.e.' : 'soʻm'}`,
         category,
@@ -127,12 +168,15 @@ export default function Create() {
           ...(breed ? [{ label: 'Zot', value: breed }] : []),
         ],
         desc,
-        sellerName: 'Sotuvchi',
+        sellerName: user?.name ?? 'Sotuvchi',
+        ownerId: ownerId ?? undefined,
+        photos: photoIds.length ? photoIds : undefined,
       });
     } catch {
       /* demo: ignore write errors */
     }
-    router.replace('/promote');
+    // Carry the new listing id so the promote screen can boost it.
+    router.replace(newId ? { pathname: '/promote', params: { listingId: newId } } : '/promote');
   };
 
   return (

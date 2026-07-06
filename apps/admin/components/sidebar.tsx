@@ -1,5 +1,7 @@
 'use client';
 
+import { api } from '@halolmia/backend/convex/_generated/api';
+import { useQuery } from 'convex/react';
 import { motion } from 'motion/react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -9,6 +11,8 @@ import {
   LayoutDashboard,
   LayoutGrid,
   ClipboardList,
+  ListOrdered,
+  LogOut,
   Megaphone,
   Settings,
   ShieldCheck,
@@ -16,22 +20,23 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useState } from 'react';
+import { ADMIN_KEY } from '@/components/admin-gate';
 
 interface NavItem {
   label: string;
   icon: LucideIcon;
   href: string;
-  badge?: number;
 }
 
 const NAV: NavItem[] = [
   { label: 'Boshqaruv paneli', icon: LayoutDashboard, href: '/' },
   { label: 'Eʼlonlar', icon: ClipboardList, href: '/elonlar' },
-  { label: 'Tekshiruv', icon: ShieldCheck, href: '/tekshiruv', badge: 34 },
+  { label: 'Feed boshqaruvi', icon: ListOrdered, href: '/feed' },
+  { label: 'Tekshiruv', icon: ShieldCheck, href: '/tekshiruv' },
   { label: 'Foydalanuvchilar', icon: Users, href: '/foydalanuvchilar' },
   { label: 'Kategoriyalar', icon: LayoutGrid, href: '/kategoriyalar' },
   { label: 'Reklama', icon: Megaphone, href: '/reklama' },
-  { label: 'Shikoyatlar', icon: Flag, href: '/shikoyatlar', badge: 5 },
+  { label: 'Shikoyatlar', icon: Flag, href: '/shikoyatlar' },
   { label: 'Toʻlovlar', icon: CreditCard, href: '/tolovlar' },
   { label: 'Sozlamalar', icon: Settings, href: '/sozlamalar' },
 ];
@@ -39,6 +44,15 @@ const NAV: NavItem[] = [
 export function Sidebar() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const overview = useQuery(api.stats.overview);
+
+  // Live badge counts per route (pending listings, new reports).
+  const badgeFor = (href: string): number => {
+    if (!overview) return 0;
+    if (href === '/tekshiruv') return overview.totals.pending;
+    if (href === '/shikoyatlar') return overview.totals.reportsNew;
+    return 0;
+  };
 
   return (
     <motion.aside
@@ -70,6 +84,7 @@ export function Sidebar() {
           const isActive =
             item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
           const Icon = item.icon;
+          const badge = badgeFor(item.href);
           return (
             <Link
               key={item.label}
@@ -81,7 +96,7 @@ export function Sidebar() {
               <span className="relative shrink-0">
                 <Icon size={20} />
                 {/* collapsed badge dot */}
-                {item.badge && !open ? (
+                {badge > 0 && !open ? (
                   <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
                 ) : null}
               </span>
@@ -92,14 +107,14 @@ export function Sidebar() {
               >
                 {item.label}
               </motion.span>
-              {item.badge && open ? (
+              {badge > 0 && open ? (
                 <motion.span
                   animate={{ opacity: open ? 1 : 0 }}
                   className={`flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold ${
                     isActive ? 'bg-white/25 text-white' : 'bg-red-500 text-white'
                   }`}
                 >
-                  {item.badge}
+                  {badge}
                 </motion.span>
               ) : null}
             </Link>
@@ -121,6 +136,16 @@ export function Sidebar() {
             <p className="truncate text-sm font-medium text-neutral-900">Admin</p>
             <p className="truncate text-xs text-neutral-400">admin@halolmi.uz</p>
           </motion.div>
+          <button
+            onClick={() => {
+              localStorage.removeItem(ADMIN_KEY);
+              window.location.reload();
+            }}
+            className="shrink-0 rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-red-500"
+            title="Chiqish"
+          >
+            <LogOut size={18} />
+          </button>
         </div>
       </div>
     </motion.aside>

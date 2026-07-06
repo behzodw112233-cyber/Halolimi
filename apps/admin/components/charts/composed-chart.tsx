@@ -10,7 +10,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { COMPOSED } from '@/lib/data';
 
 const ACCENT = '#0A6CFF';
 const GREEN = '#16A34A';
@@ -36,10 +35,14 @@ function ChartTooltip({ active, payload, label }: any) {
   );
 }
 
-export function EvilComposedChart() {
+export function EvilComposedChart({
+  data,
+}: {
+  data: { day: string; elonlar: number; daromad: number }[];
+}) {
   return (
     <ResponsiveContainer width="100%" height={230}>
-      <ComposedChart data={COMPOSED} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+      <ComposedChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
         <defs>
           <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={ACCENT} stopOpacity={0.95} />

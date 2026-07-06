@@ -1,6 +1,9 @@
+import { api } from '@halolmia/backend/convex/_generated/api';
+import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Ionicons } from '@expo/vector-icons';
+import { useMutation, useQuery } from 'convex/react';
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Modal, Platform, Pressable, View } from 'react-native';
@@ -36,13 +39,34 @@ const tap = () => {
 
 export default function Promote() {
   const router = useRouter();
+  const { listingId } = useLocalSearchParams<{ listingId?: string }>();
   const [selected, setSelected] = useState('vip');
   const [payOpen, setPayOpen] = useState(false);
 
+  const promote = useMutation(api.listings.promote);
+
+  // Admin controls which payment methods are enabled.
+  const settings = useQuery(api.settings.get);
+  const enabledPayments = PAYMENTS.filter((p) => {
+    if (!settings) return true;
+    if (p.id === 'payme') return settings.payme;
+    if (p.id === 'click') return settings.click;
+    if (p.id === 'uzcard') return settings.uzcard;
+    return true;
+  });
+
   const tier = TIERS.find((t) => t.id === selected)!;
 
-  const finish = () => {
+  const finish = async () => {
     setPayOpen(false);
+    // Apply the chosen promotion tier to the freshly-created listing.
+    if (listingId && (selected === 'alo' || selected === 'zor' || selected === 'vip' || selected === 'lux')) {
+      try {
+        await promote({ id: listingId as Id<'listings'>, tier: selected });
+      } catch {
+        /* ignore write errors */
+      }
+    }
     router.replace('/review');
   };
 
@@ -145,7 +169,7 @@ export default function Promote() {
             </Pressable>
           </View>
           <View className="flex-row flex-wrap justify-between">
-            {PAYMENTS.map((p) => (
+            {enabledPayments.map((p) => (
               <Pressable
                 key={p.id}
                 onPress={finish}

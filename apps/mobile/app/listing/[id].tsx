@@ -1,15 +1,17 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Ionicons } from '@expo/vector-icons';
-import { useQuery } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Pressable, TextInput, View } from 'react-native';
+import { Alert, Modal, ScrollView, Pressable, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
 import { BRAND_BLUE } from '../../constants/theme';
+import { useAuth } from '../../lib/auth';
+import { useSaved } from '../../lib/saved';
 
 const QUICK_MSGS = [
   'Oxirgi narx mi?',
@@ -18,13 +20,42 @@ const QUICK_MSGS = [
   'Qayerda joylashgan?',
 ];
 
+const REPORT_REASONS = [
+  'Aldov yoki firibgarlik',
+  'Notoʻgʻri maʼlumot',
+  'Nomaqbul kontent',
+  'Takroriy eʼlon',
+  'Boshqa sabab',
+];
+
 export default function ListingDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useAuth();
   const listing = useQuery(api.listings.get, { id: id as Id<'listings'> });
   const all = useQuery(api.listings.listActive, {}) ?? [];
-  const [saved, setSaved] = useState(false);
+  const { isSaved, toggleSave } = useSaved();
+  const createReport = useMutation(api.reports.create);
   const [msg, setMsg] = useState('Assalomu alaykum!');
+  const [reportOpen, setReportOpen] = useState(false);
+
+  const saved = isSaved(id as Id<'listings'>);
+  const onToggleSave = () => {
+    if (!toggleSave(id as Id<'listings'>)) router.push('/login');
+  };
+
+  const submitReport = (reason: string) => {
+    setReportOpen(false);
+    createReport({
+      listingTitle: listing?.title ?? 'Eʼlon',
+      reason,
+      reporter: user?.name ?? user?.phone ?? 'Anonim',
+    })
+      .then(() =>
+        Alert.alert('Yuborildi', 'Shikoyatingiz qabul qilindi. Rahmat!')
+      )
+      .catch(() => Alert.alert('Xatolik', 'Shikoyat yuborilmadi. Qayta urinib koʻring.'));
+  };
 
   if (!listing) {
     return (
@@ -51,7 +82,7 @@ export default function ListingDetail() {
           <Pressable hitSlop={10} className="mr-2 h-9 w-9 items-center justify-center">
             <Ionicons name="share-social-outline" size={22} color={BRAND_BLUE} />
           </Pressable>
-          <Pressable onPress={() => setSaved((s) => !s)} hitSlop={10} className="h-9 w-9 items-center justify-center">
+          <Pressable onPress={onToggleSave} hitSlop={10} className="h-9 w-9 items-center justify-center">
             <Ionicons name={saved ? 'heart' : 'heart-outline'} size={24} color={saved ? '#EF4444' : BRAND_BLUE} />
           </Pressable>
         </View>
@@ -59,10 +90,14 @@ export default function ListingDetail() {
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
           {/* Hero image */}
           <View className="items-center justify-center bg-surface-secondary" style={{ height: 260 }}>
-            <Image source={CATEGORY_IMAGES[listing.category]} contentFit="contain" style={{ width: '75%', height: '85%' }} />
+            {listing.photoUrls?.[0] ? (
+              <Image source={{ uri: listing.photoUrls[0] }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <Image source={CATEGORY_IMAGES[listing.category]} contentFit="contain" style={{ width: '75%', height: '85%' }} />
+            )}
             <View className="absolute bottom-3 right-3 flex-row items-center rounded-md bg-black/60 px-2 py-1">
               <Ionicons name="camera" size={14} color="white" />
-              <AppText className="ml-1 text-xs text-white">1/{listing.photos?.length ?? 1}</AppText>
+              <AppText className="ml-1 text-xs text-white">1/{listing.photoUrls?.length || 1}</AppText>
             </View>
           </View>
 
@@ -96,10 +131,22 @@ export default function ListingDetail() {
           </Pressable>
 
           {/* Share listing */}
-          <Pressable className="mx-4 mt-3 flex-row items-center border-y border-border py-4 active:opacity-70">
+          <Pressable className="mx-4 mt-3 flex-row items-center border-t border-border py-4 active:opacity-70">
             <Ionicons name="share-social-outline" size={20} color={BRAND_BLUE} />
             <AppText className="ml-3 flex-1 font-medium text-base" style={{ color: BRAND_BLUE }}>
               Ushbu eʼlonni yuborish
+            </AppText>
+            <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
+          </Pressable>
+
+          {/* Report listing */}
+          <Pressable
+            onPress={() => setReportOpen(true)}
+            className="mx-4 flex-row items-center border-y border-border py-4 active:opacity-70"
+          >
+            <Ionicons name="flag-outline" size={20} color="#EF4444" />
+            <AppText className="ml-3 flex-1 font-medium text-base" style={{ color: '#EF4444' }}>
+              Shikoyat qilish
             </AppText>
             <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
           </Pressable>
@@ -152,7 +199,11 @@ export default function ListingDetail() {
                 className="mb-4 active:opacity-80"
               >
                 <View className="items-center justify-center overflow-hidden rounded-xl bg-surface-secondary" style={{ height: 120 }}>
-                  <Image source={CATEGORY_IMAGES[l.category]} contentFit="contain" style={{ width: '80%', height: '80%' }} />
+                  {l.photoUrls?.[0] ? (
+                    <Image source={{ uri: l.photoUrls[0] }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
+                  ) : (
+                    <Image source={CATEGORY_IMAGES[l.category]} contentFit="contain" style={{ width: '80%', height: '80%' }} />
+                  )}
                 </View>
                 <AppText className="mt-1.5 font-medium text-base" style={{ color: BRAND_BLUE }} numberOfLines={1}>
                   {l.title.split(',')[0]}
@@ -182,6 +233,32 @@ export default function ListingDetail() {
             <AppText className="ml-2 font-semibold text-base text-white">Qoʻngʻiroq qilish +998</AppText>
           </Pressable>
         </View>
+
+        {/* Report reason sheet */}
+        <Modal visible={reportOpen} transparent animationType="slide" onRequestClose={() => setReportOpen(false)}>
+          <Pressable className="flex-1 bg-black/40" onPress={() => setReportOpen(false)} />
+          <View className="rounded-t-3xl bg-background px-5 pb-8 pt-5">
+            <View className="mb-3 flex-row items-center justify-between">
+              <AppText className="font-bold text-xl text-foreground">Shikoyat sababi</AppText>
+              <Pressable onPress={() => setReportOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={26} color="#9ca3af" />
+              </Pressable>
+            </View>
+            <AppText className="mb-4 text-base text-muted">
+              Nega bu eʼlondan shikoyat qilmoqchisiz?
+            </AppText>
+            {REPORT_REASONS.map((r) => (
+              <Pressable
+                key={r}
+                onPress={() => submitReport(r)}
+                className="flex-row items-center justify-between border-b border-border py-4 active:opacity-60"
+              >
+                <AppText className="text-lg text-foreground">{r}</AppText>
+                <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+              </Pressable>
+            ))}
+          </View>
+        </Modal>
       </SafeAreaView>
     </View>
   );

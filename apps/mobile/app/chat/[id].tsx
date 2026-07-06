@@ -1,4 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
+import { api } from '@halolmia/backend/convex/_generated/api';
+import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
 import {
@@ -12,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { BRAND_BLUE } from '../../constants/theme';
+import { useAuth } from '../../lib/auth';
 
 // Telegram-ish palette
 const BG = '#E5EBF1';
@@ -19,36 +22,31 @@ const OUT_BUBBLE = '#EFFDDE'; // outgoing (light green)
 const IN_BUBBLE = '#FFFFFF';
 const CHECK = '#4FAE4E';
 
-interface Msg {
-  id: string;
-  text: string;
-  time: string;
-  mine: boolean;
-}
-
-const INITIAL: Msg[] = [
-  { id: 'm1', text: 'Assalomu alaykum!', time: '14:02', mine: false },
-  { id: 'm2', text: 'Vaalaykum assalom! Sigir hali sotuvdami?', time: '14:03', mine: true },
-  { id: 'm3', text: 'Ha, bor. Qiziqyapsizmi?', time: '14:03', mine: false },
-  { id: 'm4', text: 'Ha. Oxirgi narxi qancha boʻladi?', time: '14:04', mine: true },
-  { id: 'm5', text: '18 million, biroz kelishsa ham boʻladi 🙂', time: '14:05', mine: false },
-  { id: 'm6', text: 'Koʻrsam boʻladimi? Qayerda joylashgan?', time: '14:06', mine: true },
-  { id: 'm7', text: 'Toshkent, Yunusobod. Istalgan vaqt keling.', time: '14:06', mine: false },
-];
+const fmtTime = (ts: number) =>
+  new Date(ts).toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit' });
 
 export default function Conversation() {
   const router = useRouter();
-  const { name = 'Sotuvchi' } = useLocalSearchParams<{ name?: string }>();
-  const [messages, setMessages] = useState<Msg[]>(INITIAL);
+  const { id, name = 'Sotuvchi' } = useLocalSearchParams<{ id: string; name?: string }>();
+  const { userId, user } = useAuth();
+  const threadId = String(id);
+
+  const messages = useQuery(api.messages.list, { threadId });
+  const sendMessage = useMutation(api.messages.send);
+
   const [text, setText] = useState('');
   const scrollRef = useRef<ScrollView>(null);
 
-  const send = () => {
+  const send = async () => {
     const t = text.trim();
     if (!t) return;
-    const time = new Date().toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit' });
-    setMessages((m) => [...m, { id: String(Date.now()), text: t, time, mine: true }]);
     setText('');
+    await sendMessage({
+      threadId,
+      senderId: userId ?? undefined,
+      senderName: user?.name ?? 'Men',
+      text: t,
+    });
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
   };
 
@@ -92,35 +90,46 @@ export default function Conversation() {
               </View>
             </View>
 
-            {messages.map((m) => (
-              <View
-                key={m.id}
-                className="mb-1.5 max-w-[80%]"
-                style={{ alignSelf: m.mine ? 'flex-end' : 'flex-start' }}
-              >
+            {messages?.length === 0 && (
+              <View className="mt-10 items-center">
+                <AppText className="text-center text-sm text-muted">
+                  Suhbatni boshlang — birinchi xabarni yozing.
+                </AppText>
+              </View>
+            )}
+
+            {messages?.map((m) => {
+              const mine = !!userId && m.senderId === userId;
+              return (
                 <View
-                  className="rounded-2xl px-3 py-2"
-                  style={{
-                    backgroundColor: m.mine ? OUT_BUBBLE : IN_BUBBLE,
-                    borderBottomRightRadius: m.mine ? 4 : 16,
-                    borderBottomLeftRadius: m.mine ? 16 : 4,
-                    shadowColor: '#000',
-                    shadowOpacity: 0.06,
-                    shadowRadius: 1,
-                    shadowOffset: { width: 0, height: 1 },
-                    elevation: 1,
-                  }}
+                  key={m._id}
+                  className="mb-1.5 max-w-[80%]"
+                  style={{ alignSelf: mine ? 'flex-end' : 'flex-start' }}
                 >
-                  <AppText className="text-[15px] leading-5 text-foreground">{m.text}</AppText>
-                  <View className="mt-0.5 flex-row items-center justify-end">
-                    <AppText className="text-[11px]" style={{ color: '#8896A6' }}>{m.time}</AppText>
-                    {m.mine && (
-                      <Ionicons name="checkmark-done" size={15} color={CHECK} style={{ marginLeft: 3 }} />
-                    )}
+                  <View
+                    className="rounded-2xl px-3 py-2"
+                    style={{
+                      backgroundColor: mine ? OUT_BUBBLE : IN_BUBBLE,
+                      borderBottomRightRadius: mine ? 4 : 16,
+                      borderBottomLeftRadius: mine ? 16 : 4,
+                      shadowColor: '#000',
+                      shadowOpacity: 0.06,
+                      shadowRadius: 1,
+                      shadowOffset: { width: 0, height: 1 },
+                      elevation: 1,
+                    }}
+                  >
+                    <AppText className="text-[15px] leading-5 text-foreground">{m.text}</AppText>
+                    <View className="mt-0.5 flex-row items-center justify-end">
+                      <AppText className="text-[11px]" style={{ color: '#8896A6' }}>{fmtTime(m.createdAt)}</AppText>
+                      {mine && (
+                        <Ionicons name="checkmark-done" size={15} color={CHECK} style={{ marginLeft: 3 }} />
+                      )}
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </ScrollView>
 
           {/* Input bar */}

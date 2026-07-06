@@ -1,10 +1,22 @@
 import { Redirect } from 'expo-router';
+import { View } from 'react-native';
+import { Spinner } from 'heroui-native';
+import { useAuth } from '../lib/auth';
 
 /**
- * Entry point. For now we always send the user to the language picker while we
- * build the UI. Later this will check a "has completed intro" flag (AsyncStorage
- * / Convex) and redirect to the tabs or auth flow instead.
+ * Entry point. Once a user has been through onboarding (or logged in) we send
+ * them straight to the feed; otherwise we start the language / intro flow.
  */
 export default function Index() {
-  return <Redirect href="/language" />;
+  const { loading, onboarded } = useAuth();
+
+  if (loading) {
+    return (
+      <View className="flex-1 items-center justify-center bg-background">
+        <Spinner />
+      </View>
+    );
+  }
+
+  return <Redirect href={onboarded ? '/home' : '/language'} />;
 }

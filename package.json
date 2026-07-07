@@ -13,12 +13,14 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:services": "concurrently -k -n convex,admin,bot -c blue,magenta,green \"convex dev\" \"npm run dev -w @halolmia/admin\" \"npm run dev:poll -w @halolmia/bot\"",
+    "dev:mobile": "npm run dev -w @halolmia/mobile",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "clean": "turbo run clean"
   },
   "devDependencies": {
-    "@turbo/windows-64": "^2.10.3",
+    "concurrently": "^9.1.0",
     "turbo": "^2.5.8"
   },
   "engines": {

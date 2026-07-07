@@ -1,15 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '@halolmia/backend/convex/_generated/api';
-import { useQuery } from 'convex/react';
+import { useAction, useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, View } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { Logo } from '../../components/logo';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
+
+const TOPUP_PRESETS = [10000, 25000, 50000, 100000];
+const fmtSom = (n: number) => `${n.toLocaleString('ru-RU')} soʻm`;
 
 const STATUS_META: Record<string, { label: string; bg: string }> = {
   active: { label: 'Faol', bg: '#86EFAC' },
@@ -25,6 +30,41 @@ export default function Profile() {
     api.listings.byOwner,
     userId ? { ownerId: userId } : 'skip'
   );
+
+  // --- inPAY wallet top-up ---
+  const createInvoice = useAction(api.inpay.createInvoice);
+  const [topupOpen, setTopupOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const invoice = useQuery(api.inpay.byOrder, orderId ? { orderId } : 'skip');
+
+  useEffect(() => {
+    if (!invoice) return;
+    if (invoice.status === 'success') {
+      Alert.alert('Toʻldirildi', `Hisobingizga ${fmtSom(invoice.amount)} qoʻshildi.`);
+      setOrderId(null);
+    } else if (invoice.status === 'failed' || invoice.status === 'cancelled') {
+      Alert.alert('Toʻlov amalga oshmadi', 'Qayta urinib koʻring.');
+      setOrderId(null);
+    }
+  }, [invoice]);
+
+  const startTopup = async (som: number) => {
+    if (!userId || !Number.isFinite(som) || som < 1000 || busy) return;
+    setBusy(true);
+    try {
+      const { orderId: oid, payUrl } = await createInvoice({ userId, amount: Math.round(som) });
+      setOrderId(oid);
+      setTopupOpen(false);
+      setAmount('');
+      await WebBrowser.openBrowserAsync(payUrl);
+    } catch (e) {
+      Alert.alert('Xatolik', e instanceof Error ? e.message : 'Toʻlovni yaratib boʻlmadi.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Not logged in → login prompt.
   if (!userId) {
@@ -81,9 +121,16 @@ export default function Profile() {
             <View className="flex-row items-center justify-between">
               <View>
                 <AppText className="font-semibold text-lg text-foreground">Halolmi hisobi</AppText>
-                <AppText className="mt-1 text-base text-muted">💰 0 soʻm</AppText>
+                <AppText className="mt-1 text-base text-muted">💰 {fmtSom(user?.balance ?? 0)}</AppText>
+                {orderId ? (
+                  <AppText className="mt-0.5 text-xs" style={{ color: BRAND_BLUE }}>Toʻlov kutilmoqda...</AppText>
+                ) : null}
               </View>
-              <Pressable className="items-center justify-center rounded-xl px-5 py-3 active:opacity-80" style={{ backgroundColor: BRAND_BLUE + '1A' }}>
+              <Pressable
+                onPress={() => setTopupOpen(true)}
+                className="items-center justify-center rounded-xl px-5 py-3 active:opacity-80"
+                style={{ backgroundColor: BRAND_BLUE + '1A' }}
+              >
                 <AppText className="font-semibold text-base" style={{ color: BRAND_BLUE }}>Toʻldirish</AppText>
               </Pressable>
             </View>
@@ -170,6 +217,62 @@ export default function Profile() {
             <AppText className="mt-1 text-sm text-muted">1.0.0 versiyasi</AppText>
           </View>
         </ScrollView>
+
+        {/* Top-up sheet */}
+        <Modal visible={topupOpen} transparent animationType="slide" onRequestClose={() => setTopupOpen(false)}>
+          <Pressable className="flex-1 bg-black/40" onPress={() => setTopupOpen(false)} />
+          <View className="rounded-t-3xl bg-background px-5 pb-8 pt-5">
+            <View className="mb-4 flex-row items-center justify-between">
+              <AppText className="font-bold text-xl text-foreground">Hisobni toʻldirish</AppText>
+              <Pressable onPress={() => setTopupOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={26} color="#9ca3af" />
+              </Pressable>
+            </View>
+
+            <View className="mb-4 flex-row flex-wrap gap-2">
+              {TOPUP_PRESETS.map((p) => (
+                <Pressable
+                  key={p}
+                  onPress={() => setAmount(String(p))}
+                  className="rounded-xl px-4 py-3"
+                  style={{ backgroundColor: amount === String(p) ? BRAND_BLUE : '#F1F3F5' }}
+                >
+                  <AppText className="text-base" style={{ color: amount === String(p) ? '#fff' : '#374151' }}>
+                    {fmtSom(p)}
+                  </AppText>
+                </Pressable>
+              ))}
+            </View>
+
+            <TextInput
+              value={amount}
+              onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
+              placeholder="Boshqa summa (min 1 000)"
+              placeholderTextColor="#9ca3af"
+              keyboardType="number-pad"
+              className="mb-4 h-14 rounded-xl border px-4 text-lg text-foreground"
+              style={{ borderColor: BRAND_BLUE, fontFamily: 'Inter-Regular' }}
+            />
+
+            <Pressable
+              onPress={() => startTopup(Number(amount))}
+              disabled={busy || Number(amount) < 1000}
+              className="h-14 flex-row items-center justify-center rounded-xl active:opacity-90"
+              style={{ backgroundColor: BRAND_BLUE, opacity: busy || Number(amount) < 1000 ? 0.5 : 1 }}
+            >
+              {busy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <AppText className="font-semibold text-base text-white">
+                  {amount ? `${fmtSom(Number(amount))} toʻlash` : 'Toʻlash'}
+                </AppText>
+              )}
+            </Pressable>
+            <AppText className="mt-3 text-center text-xs text-muted">
+              Toʻlov inPAY orqali — Click, Payme yoki karta
+            </AppText>
+          </View>
+        </Modal>
       </SafeAreaView>
     </View>
   );

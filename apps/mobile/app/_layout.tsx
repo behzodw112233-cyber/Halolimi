@@ -20,8 +20,10 @@ import { StatusBar } from 'expo-status-bar';
 import { HeroUINativeProvider } from 'heroui-native';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ConvexClientProvider } from '../components/convex-provider';
 import { AuthProvider } from '../lib/auth';
+import { StreamProviders } from '../lib/stream';
 import '../global.css';
 
 SplashScreen.setOptions({ duration: 300, fade: true });
@@ -46,8 +48,10 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
       <ConvexClientProvider>
       <AuthProvider>
+      <StreamProviders>
       <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
         <StatusBar style="auto" />
         <Stack screenOptions={{ headerShown: false }}>
@@ -61,13 +65,16 @@ export default function RootLayout() {
           <Stack.Screen name="review" />
           <Stack.Screen name="listing/[id]" />
           <Stack.Screen name="chat/[id]" />
+          <Stack.Screen name="call/[id]" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="notifications" />
           <Stack.Screen name="settings" />
         </Stack>
       </HeroUINativeProvider>
+      </StreamProviders>
       </AuthProvider>
       </ConvexClientProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

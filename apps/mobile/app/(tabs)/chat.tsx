@@ -1,22 +1,61 @@
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '@halolmia/backend/convex/_generated/api';
-import { useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
-import { ScrollView, Pressable, View } from 'react-native';
+import { useMemo } from 'react';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ChannelList } from 'stream-chat-expo';
+import type { Channel as StreamChannel } from 'stream-chat';
 import { AppText } from '../../components/app-text';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
-
-const fmtTime = (ts: number) =>
-  ts ? new Date(ts).toLocaleTimeString('uz', { hour: '2-digit', minute: '2-digit' }) : '';
+import { useStream } from '../../lib/stream';
 
 export default function Chat() {
   const router = useRouter();
   const { userId } = useAuth();
-  const threads = useQuery(api.messages.threads, userId ? { userId } : 'skip');
+  const { chatClient } = useStream();
 
-  const empty = !userId || (threads && threads.length === 0);
+  const filters = useMemo(
+    () => ({ members: { $in: [userId ?? ''] }, type: 'messaging' }),
+    [userId]
+  );
+  const sort = useMemo(() => [{ last_message_at: -1 as const }], []);
+  const options = useMemo(() => ({ limit: 20, messages_limit: 30 }), []);
+
+  const openChannel = (channel: StreamChannel) => {
+    // Show the counterpart's name (the other member of this 1:1 channel).
+    const other = Object.values(channel.state.members).find((m) => m.user?.id !== userId);
+    router.push({
+      pathname: '/chat/[id]',
+      params: { id: channel.cid, name: other?.user?.name ?? 'Sotuvchi' },
+    });
+  };
+
+  // Not logged in → prompt.
+  if (!userId) {
+    return (
+      <View className="flex-1 bg-background">
+        <SafeAreaView className="flex-1" edges={['top']}>
+          <View className="px-4 pb-2 pt-2">
+            <AppText className="font-bold text-2xl text-foreground">Suhbatlar</AppText>
+          </View>
+          <View className="flex-1 items-center justify-center px-10">
+            <Ionicons name="chatbubbles-outline" size={48} color="#9ca3af" />
+            <AppText className="mb-6 mt-3 text-center text-base text-muted">
+              Suhbatlashish uchun hisobingizga kiring.
+            </AppText>
+            <Pressable
+              onPress={() => router.push('/login')}
+              className="h-12 items-center justify-center rounded-2xl px-8 active:opacity-90"
+              style={{ backgroundColor: BRAND_BLUE }}
+            >
+              <AppText className="font-semibold text-base text-white">Kirish</AppText>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-background">
@@ -24,61 +63,13 @@ export default function Chat() {
         <View className="px-4 pb-2 pt-2">
           <AppText className="font-bold text-2xl text-foreground">Suhbatlar</AppText>
         </View>
-
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Official Halolmi welcome */}
-          <Pressable
-            onPress={() => router.push({ pathname: '/chat/[id]', params: { id: 'halolmi-official', name: 'Halolmi' } })}
-            className="flex-row items-center border-b border-border px-4 py-3 active:bg-surface-secondary"
-          >
-            <View className="mr-3 h-14 w-14 items-center justify-center rounded-2xl" style={{ backgroundColor: BRAND_BLUE }}>
-              <AppText className="text-center text-white" style={{ fontFamily: 'Fredoka-SemiBold', fontSize: 14, lineHeight: 16 }}>
-                Halol{'\n'}mi
-              </AppText>
-            </View>
-            <View className="flex-1">
-              <View className="flex-row items-center">
-                <AppText className="font-semibold text-base text-foreground">Halolmi</AppText>
-                <Ionicons name="checkmark-circle" size={16} color={BRAND_BLUE} style={{ marginLeft: 4 }} />
-              </View>
-              <AppText className="mt-1 text-sm text-muted" numberOfLines={1}>
-                ✅ Hayvonlarni oson qidirib toping
-              </AppText>
-            </View>
-          </Pressable>
-
-          {/* Real conversations */}
-          {threads?.map((t) => (
-            <Pressable
-              key={t.threadId}
-              onPress={() => router.push({ pathname: '/chat/[id]', params: { id: t.threadId, name: 'Sotuvchi' } })}
-              className="flex-row items-center border-b border-border px-4 py-3 active:bg-surface-secondary"
-            >
-              <View className="mr-3 h-14 w-14 items-center justify-center rounded-2xl" style={{ backgroundColor: '#E5E7EB' }}>
-                <Ionicons name="person" size={26} color="#9ca3af" />
-              </View>
-              <View className="flex-1">
-                <View className="flex-row items-center">
-                  <AppText className="font-semibold text-base text-foreground">Sotuvchi</AppText>
-                  <View className="flex-1" />
-                  <AppText className="text-xs text-muted">{fmtTime(t.lastAt)}</AppText>
-                </View>
-                <AppText className="mt-1 text-sm text-muted" numberOfLines={1}>
-                  {t.lastText}
-                </AppText>
-              </View>
-            </Pressable>
-          ))}
-
-          {empty && (
-            <View className="mt-16 items-center justify-center px-10">
-              <Ionicons name="chatbubbles-outline" size={48} color="#9ca3af" />
-              <AppText className="mt-3 text-center text-base text-muted">
-                Hozircha suhbatlar yoʻq
-              </AppText>
-            </View>
-          )}
-        </ScrollView>
+        {!chatClient ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator color={BRAND_BLUE} />
+          </View>
+        ) : (
+          <ChannelList filters={filters} sort={sort} options={options} onSelect={openChannel} />
+        )}
       </SafeAreaView>
     </View>
   );

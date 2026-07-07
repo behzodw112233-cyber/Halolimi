@@ -4,14 +4,29 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Alert, Modal, ScrollView, Pressable, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import {
+  Alert,
+  Dimensions,
+  Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Pressable,
+  ScrollView,
+  Share,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
+import { recordViewed } from '../../lib/recently-viewed';
 import { useSaved } from '../../lib/saved';
+import { useStream } from '../../lib/stream';
+
+const SCREEN_W = Dimensions.get('window').width;
 
 const QUICK_MSGS = [
   'Oxirgi narx mi?',
@@ -31,17 +46,54 @@ const REPORT_REASONS = [
 export default function ListingDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { user } = useAuth();
-  const listing = useQuery(api.listings.get, { id: id as Id<'listings'> });
-  const all = useQuery(api.listings.listActive, {}) ?? [];
+  const listingId = id as Id<'listings'>;
+  const { userId, user } = useAuth();
+  const listing = useQuery(api.listings.get, { id: listingId });
+  const related = useQuery(api.listings.related, { id: listingId }) ?? [];
+  const favorites = useQuery(api.saved.countFor, { listingId }) ?? 0;
   const { isSaved, toggleSave } = useSaved();
   const createReport = useMutation(api.reports.create);
+  const incrementViews = useMutation(api.listings.incrementViews);
+  const { chatClient } = useStream();
   const [msg, setMsg] = useState('Assalomu alaykum!');
   const [reportOpen, setReportOpen] = useState(false);
+  const [photoIndex, setPhotoIndex] = useState(0);
 
-  const saved = isSaved(id as Id<'listings'>);
+  // Count the view once per open and remember it for "recently viewed".
+  useEffect(() => {
+    incrementViews({ id: listingId }).catch(() => {});
+    recordViewed(listingId);
+  }, [listingId, incrementViews]);
+
+  const saved = isSaved(listingId);
   const onToggleSave = () => {
-    if (!toggleSave(id as Id<'listings'>)) router.push('/login');
+    if (!toggleSave(listingId)) router.push('/login');
+  };
+
+  const openChat = async () => {
+    if (!userId) return router.push('/login');
+    if (listing?.ownerId === userId) return; // own listing — no self-chat
+    if (!chatClient || !listing?.ownerId) return;
+    try {
+      // Distinct 1:1 channel keyed by its members — reused on repeat opens.
+      const channel = chatClient.channel('messaging', {
+        members: [userId, listing.ownerId],
+      });
+      await channel.watch();
+      router.push({
+        pathname: '/chat/[id]',
+        params: { id: channel.cid, name: listing.sellerName ?? 'Sotuvchi' },
+      });
+    } catch {
+      Alert.alert('Xatolik', 'Suhbatni ochib boʻlmadi.');
+    }
+  };
+
+  const onShare = () => {
+    if (!listing) return;
+    Share.share({
+      message: `${listing.title} — ${listing.price}\n📍 ${listing.city}\n\nHalolmi ilovasida koʻring.`,
+    }).catch(() => {});
   };
 
   const submitReport = (reason: string) => {
@@ -51,9 +103,7 @@ export default function ListingDetail() {
       reason,
       reporter: user?.name ?? user?.phone ?? 'Anonim',
     })
-      .then(() =>
-        Alert.alert('Yuborildi', 'Shikoyatingiz qabul qilindi. Rahmat!')
-      )
+      .then(() => Alert.alert('Yuborildi', 'Shikoyatingiz qabul qilindi. Rahmat!'))
       .catch(() => Alert.alert('Xatolik', 'Shikoyat yuborilmadi. Qayta urinib koʻring.'));
   };
 
@@ -65,21 +115,26 @@ export default function ListingDetail() {
     );
   }
 
-  const similar = all.filter((l) => l._id !== listing._id).slice(0, 4);
+  const photos = listing.photoUrls ?? [];
+  const photoCount = Math.max(1, photos.length);
   const details = [{ label: 'Shahar', value: listing.city }, ...listing.specs];
+
+  const onHeroScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    setPhotoIndex(Math.round(e.nativeEvent.contentOffset.x / SCREEN_W));
+  };
 
   return (
     <View className="flex-1 bg-background">
       <SafeAreaView className="flex-1" edges={['top']}>
         {/* Header */}
         <View className="h-12 flex-row items-center px-3">
-          <Pressable onPress={() => router.back()} hitSlop={10} className="h-9 w-9 items-center justify-center">
+          <Pressable onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home'))} hitSlop={10} className="h-9 w-9 items-center justify-center">
             <Ionicons name="arrow-back" size={24} color={BRAND_BLUE} />
           </Pressable>
           <AppText className="ml-1 flex-1 font-bold text-xl text-foreground" numberOfLines={1}>
             {listing.title.split(',')[0]}
           </AppText>
-          <Pressable hitSlop={10} className="mr-2 h-9 w-9 items-center justify-center">
+          <Pressable onPress={onShare} hitSlop={10} className="mr-2 h-9 w-9 items-center justify-center">
             <Ionicons name="share-social-outline" size={22} color={BRAND_BLUE} />
           </Pressable>
           <Pressable onPress={onToggleSave} hitSlop={10} className="h-9 w-9 items-center justify-center">
@@ -88,25 +143,45 @@ export default function ListingDetail() {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
-          {/* Hero image */}
-          <View className="items-center justify-center bg-surface-secondary" style={{ height: 260 }}>
-            {listing.photoUrls?.[0] ? (
-              <Image source={{ uri: listing.photoUrls[0] }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
+          {/* Hero image pager */}
+          <View className="bg-surface-secondary" style={{ height: 260 }}>
+            {photos.length > 0 ? (
+              <ScrollView
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={onHeroScroll}
+              >
+                {photos.map((uri) => (
+                  <Image key={uri} source={{ uri }} contentFit="cover" style={{ width: SCREEN_W, height: 260 }} />
+                ))}
+              </ScrollView>
             ) : (
-              <Image source={CATEGORY_IMAGES[listing.category]} contentFit="contain" style={{ width: '75%', height: '85%' }} />
+              <View className="h-full items-center justify-center">
+                <Image source={CATEGORY_IMAGES[listing.category]} contentFit="contain" style={{ width: '75%', height: '85%' }} />
+              </View>
             )}
             <View className="absolute bottom-3 right-3 flex-row items-center rounded-md bg-black/60 px-2 py-1">
               <Ionicons name="camera" size={14} color="white" />
-              <AppText className="ml-1 text-xs text-white">1/{listing.photoUrls?.length || 1}</AppText>
+              <AppText className="ml-1 text-xs text-white">{Math.min(photoIndex + 1, photoCount)}/{photoCount}</AppText>
             </View>
           </View>
 
           {/* Price + title */}
           <View className="px-4 pt-4">
-            <View className="flex-row items-center">
-              <AppText className="font-bold text-3xl text-foreground">{listing.price}</AppText>
-            </View>
+            <AppText className="font-bold text-3xl text-foreground">{listing.price}</AppText>
             <AppText className="mt-1 text-base text-muted">{listing.title}</AppText>
+            {/* View + favorite counters */}
+            <View className="mt-2 flex-row items-center gap-4">
+              <View className="flex-row items-center">
+                <Ionicons name="eye-outline" size={16} color="#9ca3af" />
+                <AppText className="ml-1 text-sm text-muted">{listing.views ?? 0} koʻrildi</AppText>
+              </View>
+              <View className="flex-row items-center">
+                <Ionicons name="heart-outline" size={16} color="#9ca3af" />
+                <AppText className="ml-1 text-sm text-muted">{favorites} saqlandi</AppText>
+              </View>
+            </View>
           </View>
 
           {/* Details table */}
@@ -118,6 +193,25 @@ export default function ListingDetail() {
               </View>
             ))}
           </View>
+
+          {/* Seller card → profile */}
+          {listing.ownerId && (
+            <Pressable
+              onPress={() => router.push({ pathname: '/seller/[id]', params: { id: listing.ownerId as string } })}
+              className="mx-4 mt-4 flex-row items-center rounded-2xl bg-surface-secondary p-3 active:opacity-80"
+            >
+              <View className="h-11 w-11 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE }}>
+                <AppText className="text-white" style={{ fontFamily: 'Fredoka-SemiBold', fontSize: 18 }}>
+                  {(listing.sellerName ?? 'S').charAt(0).toUpperCase()}
+                </AppText>
+              </View>
+              <View className="ml-3 flex-1">
+                <AppText className="font-semibold text-base text-foreground">{listing.sellerName}</AppText>
+                <AppText className="text-sm text-muted">Sotuvchi profilini koʻrish</AppText>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+            </Pressable>
+          )}
 
           {/* Call seller */}
           <Pressable
@@ -131,7 +225,7 @@ export default function ListingDetail() {
           </Pressable>
 
           {/* Share listing */}
-          <Pressable className="mx-4 mt-3 flex-row items-center border-t border-border py-4 active:opacity-70">
+          <Pressable onPress={onShare} className="mx-4 mt-3 flex-row items-center border-t border-border py-4 active:opacity-70">
             <Ionicons name="share-social-outline" size={20} color={BRAND_BLUE} />
             <AppText className="ml-3 flex-1 font-medium text-base" style={{ color: BRAND_BLUE }}>
               Ushbu eʼlonni yuborish
@@ -188,43 +282,49 @@ export default function ListingDetail() {
             </View>
           </View>
 
-          {/* Similar listings */}
-          <AppText className="mb-3 mt-6 px-4 font-bold text-lg text-foreground">Oʻxshash eʼlonlar</AppText>
-          <View className="flex-row flex-wrap justify-between px-4">
-            {similar.map((l) => (
-              <Pressable
-                key={l._id}
-                onPress={() => router.push({ pathname: '/listing/[id]', params: { id: l._id } })}
-                style={{ width: '48.5%' }}
-                className="mb-4 active:opacity-80"
-              >
-                <View className="items-center justify-center overflow-hidden rounded-xl bg-surface-secondary" style={{ height: 120 }}>
-                  {l.photoUrls?.[0] ? (
-                    <Image source={{ uri: l.photoUrls[0] }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
-                  ) : (
-                    <Image source={CATEGORY_IMAGES[l.category]} contentFit="contain" style={{ width: '80%', height: '80%' }} />
-                  )}
-                </View>
-                <AppText className="mt-1.5 font-medium text-base" style={{ color: BRAND_BLUE }} numberOfLines={1}>
-                  {l.title.split(',')[0]}
-                </AppText>
-                <AppText className="font-bold text-base text-foreground">{l.price}</AppText>
-                <AppText className="text-sm text-muted">{l.city}</AppText>
-              </Pressable>
-            ))}
-          </View>
+          {/* Related listings */}
+          {related.length > 0 && (
+            <>
+              <AppText className="mb-3 mt-6 px-4 font-bold text-lg text-foreground">Oʻxshash eʼlonlar</AppText>
+              <View className="flex-row flex-wrap justify-between px-4">
+                {related.map((l) => (
+                  <Pressable
+                    key={l._id}
+                    onPress={() => router.push({ pathname: '/listing/[id]', params: { id: l._id } })}
+                    style={{ width: '48.5%' }}
+                    className="mb-4 active:opacity-80"
+                  >
+                    <View className="items-center justify-center overflow-hidden rounded-xl bg-surface-secondary" style={{ height: 120 }}>
+                      {l.photoUrls?.[0] ? (
+                        <Image source={{ uri: l.photoUrls[0] }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
+                      ) : (
+                        <Image source={CATEGORY_IMAGES[l.category]} contentFit="contain" style={{ width: '80%', height: '80%' }} />
+                      )}
+                    </View>
+                    <AppText className="mt-1.5 font-medium text-base" style={{ color: BRAND_BLUE }} numberOfLines={1}>
+                      {l.title.split(',')[0]}
+                    </AppText>
+                    <AppText className="font-bold text-base text-foreground">{l.price}</AppText>
+                    <AppText className="text-sm text-muted">{l.city}</AppText>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
         </ScrollView>
 
         {/* Sticky bottom bar */}
         <View className="flex-row gap-3 border-t border-border px-4 py-2.5">
-          <Pressable
-            onPress={() => router.push({ pathname: '/chat/[id]', params: { id: 'seller-' + listing._id, name: 'Sotuvchi' } })}
-            className="h-12 flex-1 flex-row items-center justify-center rounded-xl active:opacity-90"
-            style={{ backgroundColor: BRAND_BLUE }}
-          >
-            <Ionicons name="paper-plane" size={18} color="white" />
-            <AppText className="ml-2 font-semibold text-base text-white">Chat</AppText>
-          </Pressable>
+          {listing.ownerId !== userId && (
+            <Pressable
+              onPress={openChat}
+              className="h-12 flex-1 flex-row items-center justify-center rounded-xl active:opacity-90"
+              style={{ backgroundColor: BRAND_BLUE }}
+            >
+              <Ionicons name="paper-plane" size={18} color="white" />
+              <AppText className="ml-2 font-semibold text-base text-white">Chat</AppText>
+            </Pressable>
+          )}
           <Pressable
             className="h-12 flex-[1.4] flex-row items-center justify-center rounded-xl active:opacity-90"
             style={{ backgroundColor: '#22C55E' }}

@@ -4,7 +4,8 @@ import { v } from 'convex/values';
 export const listingStatus = v.union(
   v.literal('active'),
   v.literal('pending'),
-  v.literal('rejected')
+  v.literal('rejected'),
+  v.literal('sold')
 );
 
 export const adStatus = v.union(
@@ -21,6 +22,12 @@ export const listingTier = v.union(
 );
 
 export const userStatus = v.union(v.literal('active'), v.literal('blocked'));
+export const invoiceStatus = v.union(
+  v.literal('pending'),
+  v.literal('success'),
+  v.literal('failed'),
+  v.literal('cancelled')
+);
 export const reportStatus = v.union(v.literal('new'), v.literal('resolved'));
 export const paymentStatus = v.union(v.literal('success'), v.literal('pending'));
 
@@ -45,6 +52,8 @@ export default defineSchema({
     sellerName: v.string(),
     ownerId: v.optional(v.id('users')),
     photos: v.optional(v.array(v.id('_storage'))),
+    // Total detail-screen opens. Shown as the view counter; incremented on open.
+    views: v.optional(v.number()),
     createdAt: v.number(),
     // Feed ranking: promotion tier + when its boost expires, and manual admin pin.
     tier: v.optional(listingTier),
@@ -82,7 +91,40 @@ export default defineSchema({
     listings: v.number(),
     joined: v.string(),
     status: userStatus,
+    // Seller profile.
+    avatar: v.optional(v.id('_storage')),
+    bio: v.optional(v.string()),
+    // Denormalized rating: running sum + count so the average is O(1) to show.
+    ratingSum: v.optional(v.number()),
+    ratingCount: v.optional(v.number()),
+    // Number of listings the seller has marked sold (trust signal).
+    soldCount: v.optional(v.number()),
+    // Presence: last heartbeat time. "online" = within the last minute.
+    lastSeen: v.optional(v.number()),
+    // Wallet balance in UZS (soʻm), topped up via inPAY.
+    balance: v.optional(v.number()),
   }).index('by_phone', ['phone']),
+
+  // Buyer reviews of a seller (1–5 stars + optional text). One row per review.
+  reviews: defineTable({
+    sellerId: v.id('users'),
+    authorId: v.optional(v.id('users')),
+    authorName: v.string(),
+    rating: v.number(), // 1..5
+    text: v.string(),
+    createdAt: v.number(),
+  })
+    .index('by_seller', ['sellerId'])
+    .index('by_seller_author', ['sellerId', 'authorId']),
+
+  // "Follow seller" edges. One row = follower follows seller.
+  follows: defineTable({
+    followerId: v.id('users'),
+    sellerId: v.id('users'),
+  })
+    .index('by_follower', ['followerId'])
+    .index('by_seller', ['sellerId'])
+    .index('by_pair', ['followerId', 'sellerId']),
 
   messages: defineTable({
     threadId: v.string(),
@@ -90,7 +132,41 @@ export default defineSchema({
     senderName: v.string(),
     text: v.string(),
     createdAt: v.number(),
+    // Phase 3: rich messages.
+    imageId: v.optional(v.id('_storage')), // image attachment
+    replyToId: v.optional(v.id('messages')), // quoted message
+    editedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()), // soft delete → "xabar oʻchirildi"
+    reactions: v.optional(
+      v.array(v.object({ userId: v.id('users'), emoji: v.string() }))
+    ),
   }).index('by_thread', ['threadId']),
+
+  // A conversation between two users (optionally about a listing). Identified by
+  // a deterministic `key` so opening the same chat twice reuses one thread.
+  threads: defineTable({
+    key: v.string(),
+    listingId: v.optional(v.id('listings')),
+    title: v.string(),
+    lastText: v.string(),
+    lastAt: v.number(),
+    lastSenderId: v.optional(v.id('users')),
+  }).index('by_key', ['key']),
+
+  // Per-user view of a thread: unread count, read cursor, typing signal, and the
+  // display name of the counterpart from this member's perspective.
+  threadMembers: defineTable({
+    threadId: v.id('threads'),
+    userId: v.id('users'),
+    otherId: v.optional(v.id('users')),
+    otherName: v.string(),
+    unread: v.number(),
+    lastReadAt: v.number(),
+    typingUntil: v.optional(v.number()),
+  })
+    .index('by_user', ['userId'])
+    .index('by_thread', ['threadId'])
+    .index('by_thread_user', ['threadId', 'userId']),
 
   saved: defineTable({
     userId: v.id('users'),
@@ -149,4 +225,24 @@ export default defineSchema({
     date: v.string(),
     status: paymentStatus,
   }),
+
+  // inPAY payment invoices. Created pending when the app requests a top-up,
+  // flipped to success/failed when inPAY's webhook is verified server-side.
+  invoices: defineTable({
+    orderId: v.string(), // inPAY order_id
+    userId: v.id('users'),
+    amount: v.number(), // UZS
+    purpose: v.string(), // 'topup' | 'promote'
+    method: v.optional(v.string()), // click | payme | inPAY
+    status: invoiceStatus,
+    payUrl: v.optional(v.string()),
+    transactionId: v.optional(v.number()),
+    // Promotion target (purpose === 'promote').
+    listingId: v.optional(v.id('listings')),
+    tier: v.optional(listingTier),
+    createdAt: v.number(),
+    paidAt: v.optional(v.number()),
+  })
+    .index('by_order', ['orderId'])
+    .index('by_user', ['userId']),
 });

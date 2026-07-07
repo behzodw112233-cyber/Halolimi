@@ -31,18 +31,20 @@ export const STAT_META: {
   { key: 'revenue', label: 'Jami daromad', icon: Wallet, tint: '#8B5CF6', suffix: 'soʻm' },
 ];
 
-export type Status = 'active' | 'pending' | 'rejected';
+export type Status = 'active' | 'pending' | 'rejected' | 'sold';
 
-export const STATUS_META: Record<Status, { label: string; color: 'success' | 'warning' | 'danger' }> = {
+export const STATUS_META: Record<Status, { label: string; color: 'success' | 'warning' | 'danger' | 'default' }> = {
   active: { label: 'Faol', color: 'success' },
   pending: { label: 'Tekshiruvda', color: 'warning' },
   rejected: { label: 'Rad etilgan', color: 'danger' },
+  sold: { label: 'Sotilgan', color: 'default' },
 };
 
 export const STATUS_COLOR: Record<Status, string> = {
   active: '#16A34A',
   pending: '#F59E0B',
   rejected: '#EF4444',
+  sold: '#6B7280',
 };
 
 // Visual (name + emoji + gradient) per category slug
@@ -65,6 +67,7 @@ export const METHOD_COLOR: Record<string, string> = {
   Payme: '#33CCCC',
   Click: '#0A6CFF',
   Uzcard: '#1E3A8A',
+  inPAY: '#16A34A',
 };
 
 // ---- Ads Manager (Meta-style) ----

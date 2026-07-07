@@ -1,15 +1,21 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Ionicons } from '@expo/vector-icons';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useQuery } from 'convex/react';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Modal, Platform, Pressable, View } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../components/app-text';
 import { BRAND_BLUE } from '../constants/theme';
+import { useAuth } from '../lib/auth';
+
+// Map the UI payment button to inPAY's payment_method values.
+const METHOD_MAP: Record<string, string> = { click: 'click', payme: 'payme', uzcard: 'inPAY' };
+type PromoTier = 'alo' | 'zor' | 'vip' | 'lux';
 
 type Tier = {
   id: string;
@@ -40,10 +46,12 @@ const tap = () => {
 export default function Promote() {
   const router = useRouter();
   const { listingId } = useLocalSearchParams<{ listingId?: string }>();
-  const [selected, setSelected] = useState('vip');
+  const { userId } = useAuth();
+  const [selected, setSelected] = useState<PromoTier>('vip');
   const [payOpen, setPayOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  const promote = useMutation(api.listings.promote);
+  const createPromoteInvoice = useAction(api.inpay.createPromoteInvoice);
 
   // Admin controls which payment methods are enabled.
   const settings = useQuery(api.settings.get);
@@ -57,17 +65,31 @@ export default function Promote() {
 
   const tier = TIERS.find((t) => t.id === selected)!;
 
-  const finish = async () => {
-    setPayOpen(false);
-    // Apply the chosen promotion tier to the freshly-created listing.
-    if (listingId && (selected === 'alo' || selected === 'zor' || selected === 'vip' || selected === 'lux')) {
-      try {
-        await promote({ id: listingId as Id<'listings'>, tier: selected });
-      } catch {
-        /* ignore write errors */
-      }
+  // Pay for the selected plan via inPAY. The boost is applied server-side once
+  // the payment webhook is verified (inpay.markPaid), so we just open checkout.
+  const pay = async (methodId: string) => {
+    if (busy) return;
+    if (!userId || !listingId) {
+      setPayOpen(false);
+      router.replace('/review');
+      return;
     }
-    router.replace('/review');
+    setBusy(true);
+    try {
+      const { payUrl } = await createPromoteInvoice({
+        userId,
+        listingId: listingId as Id<'listings'>,
+        tier: selected,
+        method: METHOD_MAP[methodId] ?? 'inPAY',
+      });
+      setPayOpen(false);
+      await WebBrowser.openBrowserAsync(payUrl);
+      router.replace('/review');
+    } catch (e) {
+      Alert.alert('Xatolik', e instanceof Error ? e.message : 'Toʻlovni yaratib boʻlmadi.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -93,7 +115,7 @@ export default function Promote() {
             const card = (
               <Pressable
                 key={t.id}
-                onPress={() => { tap(); setSelected(t.id); }}
+                onPress={() => { tap(); setSelected(t.id as PromoTier); }}
                 className="mb-3 rounded-2xl p-4"
                 style={{
                   backgroundColor: active ? BRAND_BLUE + '12' : '#F1F3F5',
@@ -129,7 +151,7 @@ export default function Promote() {
                     <AppText className="font-semibold text-base text-white">Boshqalardan ajralib turing!</AppText>
                   </LinearGradient>
                   <Pressable
-                    onPress={() => { tap(); setSelected(t.id); }}
+                    onPress={() => { tap(); setSelected(t.id as PromoTier); }}
                     className="flex-row items-center bg-white p-4"
                     style={{ borderWidth: 2, borderColor: '#1E40AF', borderTopWidth: 0 }}
                   >
@@ -172,9 +194,10 @@ export default function Promote() {
             {enabledPayments.map((p) => (
               <Pressable
                 key={p.id}
-                onPress={finish}
+                onPress={() => pay(p.id)}
+                disabled={busy}
                 className="mb-3 items-center justify-center rounded-2xl border border-border p-4 active:opacity-70"
-                style={{ width: '48%', height: 96 }}
+                style={{ width: '48%', height: 96, opacity: busy ? 0.5 : 1 }}
               >
                 <View className="mb-2 rounded-lg px-3 py-1.5" style={{ backgroundColor: p.color }}>
                   <AppText className="font-bold text-sm text-white">{p.label.split('/')[0]}</AppText>
@@ -183,6 +206,12 @@ export default function Promote() {
               </Pressable>
             ))}
           </View>
+          {busy && (
+            <View className="mt-3 flex-row items-center justify-center">
+              <ActivityIndicator color={BRAND_BLUE} />
+              <AppText className="ml-2 text-sm text-muted">Toʻlov ochilmoqda...</AppText>
+            </View>
+          )}
         </View>
       </Modal>
     </View>

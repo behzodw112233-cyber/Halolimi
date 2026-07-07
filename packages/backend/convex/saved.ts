@@ -33,6 +33,17 @@ export const list = query({
   },
 });
 
+/** How many users have saved a listing (the ❤️ favorite counter). */
+export const countFor = query({
+  args: { listingId: v.id('listings') },
+  handler: async (ctx, { listingId }) => {
+    // Indexes are keyed by userId first, so there's no cheap range on listingId;
+    // the saved set is small per app, so a filtered scan is fine here.
+    const all = await ctx.db.query('saved').collect();
+    return all.filter((r) => r.listingId === listingId).length;
+  },
+});
+
 export const toggle = mutation({
   args: { userId: v.id('users'), listingId: v.id('listings') },
   handler: async (ctx, { userId, listingId }) => {

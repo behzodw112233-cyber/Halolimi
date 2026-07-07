@@ -133,6 +133,59 @@ export const setStatus = mutation({
   handler: (ctx, { id, status }) => ctx.db.patch(id, { status }),
 });
 
+/** Count one detail-screen open. Best-effort — never blocks the screen. */
+export const incrementViews = mutation({
+  args: { id: v.id('listings') },
+  handler: async (ctx, { id }) => {
+    const l = await ctx.db.get(id);
+    if (!l) return;
+    await ctx.db.patch(id, { views: (l.views ?? 0) + 1 });
+  },
+});
+
+/**
+ * Seller marks a listing sold: flip status and bump their soldCount so the
+ * seller profile "N sotildi" trust number stays accurate.
+ */
+export const markSold = mutation({
+  args: { id: v.id('listings') },
+  handler: async (ctx, { id }) => {
+    const l = await ctx.db.get(id);
+    if (!l || l.status === 'sold') return;
+    await ctx.db.patch(id, { status: 'sold' });
+    if (l.ownerId) {
+      const owner = await ctx.db.get(l.ownerId);
+      if (owner) await ctx.db.patch(l.ownerId, { soldCount: (owner.soldCount ?? 0) + 1 });
+    }
+  },
+});
+
+/**
+ * Related listings for the detail screen: other active listings in the same
+ * category (falls back to any active listing), most recent first.
+ */
+export const related = query({
+  args: { id: v.id('listings'), limit: v.optional(v.number()) },
+  handler: async (ctx, { id, limit }) => {
+    const base = await ctx.db.get(id);
+    if (!base) return [];
+    const sameCat = await ctx.db
+      .query('listings')
+      .withIndex('by_category', (q) => q.eq('category', base.category))
+      .collect();
+    let pool = sameCat.filter((l) => l._id !== id && l.status === 'active');
+    if (pool.length === 0) {
+      const active = await ctx.db
+        .query('listings')
+        .withIndex('by_status', (q) => q.eq('status', 'active'))
+        .collect();
+      pool = active.filter((l) => l._id !== id);
+    }
+    const ranked = pool.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit ?? 6);
+    return Promise.all(ranked.map((l) => withUrls(ctx, l)));
+  },
+});
+
 export const remove = mutation({
   args: { id: v.id('listings') },
   handler: (ctx, { id }) => ctx.db.delete(id),

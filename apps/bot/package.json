@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:poll": "tsx watch src/dev.ts",
     "start": "tsx src/index.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit"

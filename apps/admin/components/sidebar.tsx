@@ -16,6 +16,7 @@ import {
   Megaphone,
   Settings,
   ShieldCheck,
+  Star,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -37,6 +38,7 @@ const NAV: NavItem[] = [
   { label: 'Kategoriyalar', icon: LayoutGrid, href: '/kategoriyalar' },
   { label: 'Reklama', icon: Megaphone, href: '/reklama' },
   { label: 'Shikoyatlar', icon: Flag, href: '/shikoyatlar' },
+  { label: 'Sharhlar', icon: Star, href: '/sharhlar' },
   { label: 'Toʻlovlar', icon: CreditCard, href: '/tolovlar' },
   { label: 'Sozlamalar', icon: Settings, href: '/sozlamalar' },
 ];

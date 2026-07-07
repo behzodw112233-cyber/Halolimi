@@ -23,3 +23,6 @@ web-build/
 *.mobileprovision
 # heroui-agents-md
 .heroui-docs/
+# Agent skills (symlinked dirs — break EAS build tarball on Windows)
+.agents/
+.claude/skills/

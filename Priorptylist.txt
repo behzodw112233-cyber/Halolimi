@@ -1,0 +1,3 @@
+-wight scale apporomently
+-ofical dilers things and veidos
+-fix the auth when user out of the sides

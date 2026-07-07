@@ -17,7 +17,9 @@
     "dev:mobile": "npm run dev -w @halolmia/mobile",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "clean": "turbo run clean"
+    "clean": "turbo run clean",
+    "deploy:admin": "scripts\\deploy-admin.cmd vercel",
+    "build:admin": "npm run build -w @halolmia/admin"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

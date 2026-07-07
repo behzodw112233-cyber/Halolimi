@@ -2,8 +2,5 @@
   "buildCommand": "cd ../.. && npm run build -w @halolmia/admin",
   "outputDirectory": ".next",
   "installCommand": "cd ../.. && npm install",
-  "framework": "nextjs",
-  "env": {
-    "NEXT_PUBLIC_CONVEX_URL": "@convex_url"
-  }
+  "framework": "nextjs"
 }

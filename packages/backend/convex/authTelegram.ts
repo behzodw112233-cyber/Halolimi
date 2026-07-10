@@ -68,9 +68,15 @@ export const status = query({
  * hasn't landed yet, so ordering never matters.
  */
 export const verify = mutation({
-  args: { token: v.string(), phone: v.string(), name: v.optional(v.string()) },
-  handler: async (ctx, { token, phone, name }) => {
+  args: {
+    token: v.string(),
+    phone: v.string(),
+    name: v.optional(v.string()),
+    telegramId: v.optional(v.string()),
+  },
+  handler: async (ctx, { token, phone, name, telegramId }) => {
     const userId = await getOrCreateUser(ctx, normalizePhone(phone), name);
+    if (telegramId) await ctx.db.patch(userId, { telegramId });
     const existing = await ctx.db
       .query('authSessions')
       .withIndex('by_token', (q) => q.eq('token', token))
@@ -86,5 +92,47 @@ export const verify = mutation({
       });
     }
     return true;
+  },
+});
+
+/** Bot: link the Telegram account to the same phone-based Convex user identity. */
+export const linkBot = mutation({
+  args: { telegramId: v.string(), phone: v.string(), name: v.optional(v.string()) },
+  handler: async (ctx, { telegramId, phone, name }) => {
+    const userId = await getOrCreateUser(ctx, normalizePhone(phone), name);
+    await ctx.db.patch(userId, { telegramId });
+    return userId;
+  },
+});
+
+/** Bot: resolve a Telegram user into the linked Convex profile + live counters. */
+export const botProfile = query({
+  args: { telegramId: v.string() },
+  handler: async (ctx, { telegramId }) => {
+    const user = await ctx.db
+      .query('users')
+      .withIndex('by_telegram', (q) => q.eq('telegramId', telegramId))
+      .first();
+    if (!user) return null;
+
+    const saved = await ctx.db
+      .query('saved')
+      .withIndex('by_user', (q) => q.eq('userId', user._id))
+      .collect();
+    const listings = await ctx.db
+      .query('listings')
+      .withIndex('by_owner', (q) => q.eq('ownerId', user._id))
+      .collect();
+
+    return {
+      userId: user._id,
+      name: user.name,
+      phone: user.phone,
+      balance: user.balance ?? 0,
+      savedCount: saved.length,
+      listingCount: listings.length,
+      activeListingCount: listings.filter((l) => l.status === 'active').length,
+      pendingListingCount: listings.filter((l) => l.status === 'pending').length,
+    };
   },
 });

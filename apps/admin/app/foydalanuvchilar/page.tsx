@@ -15,6 +15,7 @@ export default function FoydalanuvchilarPage() {
   const users = useQuery(api.users.list) ?? [];
   const overview = useQuery(api.stats.overview);
   const setStatus = useMutation(api.users.setStatus);
+  const setDealer = useMutation(api.users.setDealer);
   const removeUser = useMutation(api.users.remove);
 
   const monthly = overview?.usersMonthly ?? [];
@@ -60,8 +61,13 @@ export default function FoydalanuvchilarPage() {
                         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-xs font-semibold text-white">
                           {initials(u.name)}
                         </div>
-                        <div>
+                        <div className="flex items-center gap-2">
                           <p className="font-medium text-neutral-900">{u.name}</p>
+                          {u.isDealer && (
+                            <Chip variant="soft" color="accent" size="sm">
+                              Diler
+                            </Chip>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -75,6 +81,13 @@ export default function FoydalanuvchilarPage() {
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <div className="flex justify-end gap-2">
+                        <Button
+                          variant={u.isDealer ? 'tertiary' : 'secondary'}
+                          size="sm"
+                          onPress={() => setDealer({ id: u._id, isDealer: !u.isDealer })}
+                        >
+                          {u.isDealer ? 'Dilerdan olish' : 'Diler qilish'}
+                        </Button>
                         <Button
                           variant={u.status === 'active' ? 'danger-soft' : 'secondary'}
                           size="sm"

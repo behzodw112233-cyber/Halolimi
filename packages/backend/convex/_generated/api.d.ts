@@ -12,6 +12,7 @@ import type * as admin from "../admin.js";
 import type * as ads from "../ads.js";
 import type * as authTelegram from "../authTelegram.js";
 import type * as categories from "../categories.js";
+import type * as dealers from "../dealers.js";
 import type * as files from "../files.js";
 import type * as follows from "../follows.js";
 import type * as http from "../http.js";
@@ -20,13 +21,14 @@ import type * as listings from "../listings.js";
 import type * as messages from "../messages.js";
 import type * as notifications from "../notifications.js";
 import type * as payments from "../payments.js";
+import type * as plans from "../plans.js";
+import type * as push from "../push.js";
 import type * as reports from "../reports.js";
 import type * as reviews from "../reviews.js";
 import type * as saved from "../saved.js";
 import type * as seed from "../seed.js";
 import type * as settings from "../settings.js";
 import type * as stats from "../stats.js";
-import type * as stream from "../stream.js";
 import type * as users from "../users.js";
 
 import type {
@@ -40,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   ads: typeof ads;
   authTelegram: typeof authTelegram;
   categories: typeof categories;
+  dealers: typeof dealers;
   files: typeof files;
   follows: typeof follows;
   http: typeof http;
@@ -48,13 +51,14 @@ declare const fullApi: ApiFromModules<{
   messages: typeof messages;
   notifications: typeof notifications;
   payments: typeof payments;
+  plans: typeof plans;
+  push: typeof push;
   reports: typeof reports;
   reviews: typeof reviews;
   saved: typeof saved;
   seed: typeof seed;
   settings: typeof settings;
   stats: typeof stats;
-  stream: typeof stream;
   users: typeof users;
 }>;
 

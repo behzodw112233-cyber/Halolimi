@@ -1,5 +1,6 @@
 import { v } from 'convex/values';
 import { mutation, query, type MutationCtx } from './_generated/server';
+import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 
 const TYPING_MS = 5_000; // typing indicator lifetime
@@ -196,6 +197,13 @@ export const send = mutation({
           await ctx.db.patch(m._id, { lastReadAt: Date.now(), typingUntil: undefined });
         } else {
           await ctx.db.patch(m._id, { unread: m.unread + 1 });
+          // Push the message to the recipient's device(s).
+          await ctx.scheduler.runAfter(0, internal.push.send, {
+            userId: m.userId,
+            title: args.senderName || 'Yangi xabar',
+            body: preview || 'Sizga xabar yubordi.',
+            data: { type: 'chat', threadId: args.threadId },
+          });
         }
       }
     }

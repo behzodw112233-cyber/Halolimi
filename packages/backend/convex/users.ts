@@ -2,6 +2,43 @@ import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { userStatus } from './schema';
 
+const ONLINE_MS = 3 * 60 * 1000;
+const RECENT_MS = 24 * 60 * 60 * 1000;
+const HEARTBEAT_WRITE_MS = 2 * 60 * 1000;
+
+function trustSummary({
+  phone,
+  telegramId,
+  rating,
+  ratingCount,
+  reportCount,
+  lastSeen,
+  now,
+}: {
+  phone?: string;
+  telegramId?: string;
+  rating: number;
+  ratingCount: number;
+  reportCount: number;
+  lastSeen?: number;
+  now: number;
+}) {
+  const phoneVerified = !!phone;
+  const telegramLinked = !!telegramId;
+  const activeRecently = !!lastSeen && now - lastSeen < RECENT_MS;
+  const goodReviews = ratingCount > 0 && rating >= 4;
+  const noReports = reportCount === 0;
+  return {
+    phoneVerified,
+    telegramLinked,
+    activeRecently,
+    noReports,
+    goodReviews,
+    verified: phoneVerified && telegramLinked && activeRecently && noReports && goodReviews,
+    reportCount,
+  };
+}
+
 export const list = query({
   args: {},
   handler: (ctx) => ctx.db.query('users').collect(),
@@ -53,8 +90,8 @@ export const updateProfile = mutation({
  * active/sold listing counts, follower count, resolved avatar URL).
  */
 export const sellerProfile = query({
-  args: { id: v.id('users') },
-  handler: async (ctx, { id }) => {
+  args: { id: v.id('users'), now: v.optional(v.number()) },
+  handler: async (ctx, { id, now: nowArg }) => {
     const u = await ctx.db.get(id);
     if (!u) return null;
     const listings = await ctx.db
@@ -67,13 +104,35 @@ export const sellerProfile = query({
       .query('follows')
       .withIndex('by_seller', (q) => q.eq('sellerId', id))
       .collect();
+    const reports = await ctx.db
+      .query('reports')
+      .withIndex('by_seller', (q) => q.eq('sellerId', id))
+      .collect();
     const ratingCount = u.ratingCount ?? 0;
     const rating = ratingCount ? (u.ratingSum ?? 0) / ratingCount : 0;
     const avatarUrl = u.avatar ? await ctx.storage.getUrl(u.avatar) : null;
+    const now = nowArg ?? Date.now();
+    const trust = trustSummary({
+      phone: u.phone,
+      telegramId: u.telegramId,
+      rating,
+      ratingCount,
+      reportCount: reports.length,
+      lastSeen: u.lastSeen,
+      now,
+    });
     return {
       _id: u._id,
       name: u.name,
       phone: u.phone,
+      phoneVerified: trust.phoneVerified,
+      telegramLinked: trust.telegramLinked,
+      isDealer: !!u.isDealer,
+      activeRecently: trust.activeRecently,
+      noReports: trust.noReports,
+      goodReviews: trust.goodReviews,
+      verified: trust.verified,
+      reportCount: trust.reportCount,
       bio: u.bio ?? '',
       joined: u.joined,
       avatarUrl,
@@ -82,6 +141,8 @@ export const sellerProfile = query({
       activeCount: active,
       soldCount: sold,
       followerCount: followers.length,
+      lastSeen: u.lastSeen,
+      online: !!u.lastSeen && now - u.lastSeen < ONLINE_MS,
     };
   },
 });
@@ -89,12 +150,23 @@ export const sellerProfile = query({
 /** Presence heartbeat — call periodically while the app is foregrounded. */
 export const heartbeat = mutation({
   args: { id: v.id('users') },
-  handler: (ctx, { id }) => ctx.db.patch(id, { lastSeen: Date.now() }),
+  handler: async (ctx, { id }) => {
+    const now = Date.now();
+    const user = await ctx.db.get(id);
+    if (!user || (user.lastSeen && now - user.lastSeen < HEARTBEAT_WRITE_MS)) return;
+    await ctx.db.patch(id, { lastSeen: now });
+  },
 });
 
 export const setStatus = mutation({
   args: { id: v.id('users'), status: userStatus },
   handler: (ctx, { id, status }) => ctx.db.patch(id, { status }),
+});
+
+/** Mark / unmark a user as an official dealer (admin panel). */
+export const setDealer = mutation({
+  args: { id: v.id('users'), isDealer: v.boolean() },
+  handler: (ctx, { id, isDealer }) => ctx.db.patch(id, { isDealer }),
 });
 
 export const remove = mutation({

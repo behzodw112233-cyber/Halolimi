@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import {
   Alert,
   Dimensions,
+  Linking,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -24,7 +25,13 @@ import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { recordViewed } from '../../lib/recently-viewed';
 import { useSaved } from '../../lib/saved';
-import { useStream } from '../../lib/stream';
+import {
+  DealerBadge,
+  DealSafetyTips,
+  RatingPromptSheet,
+  SafetyBanner,
+  TrustBadges,
+} from '../../components/trust-safety';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -48,21 +55,31 @@ export default function ListingDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const listingId = id as Id<'listings'>;
   const { userId, user } = useAuth();
-  const listing = useQuery(api.listings.get, { id: listingId });
+  const [now] = useState(() => Math.floor(Date.now() / 60_000) * 60_000);
+  const listing = useQuery(api.listings.get, { id: listingId, now });
   const related = useQuery(api.listings.related, { id: listingId }) ?? [];
   const favorites = useQuery(api.saved.countFor, { listingId }) ?? 0;
   const { isSaved, toggleSave } = useSaved();
   const createReport = useMutation(api.reports.create);
+  const submitReview = useMutation(api.reviews.create);
   const incrementViews = useMutation(api.listings.incrementViews);
-  const { chatClient } = useStream();
+  const openThread = useMutation(api.messages.openThread);
+  const sendMessage = useMutation(api.messages.send);
   const [msg, setMsg] = useState('Assalomu alaykum!');
+  const [sending, setSending] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [ratingOpen, setRatingOpen] = useState(false);
+  const [stars, setStars] = useState(5);
+  const [reviewText, setReviewText] = useState('');
   const [photoIndex, setPhotoIndex] = useState(0);
 
-  // Count the view once per open and remember it for "recently viewed".
+  // Count only fresh local views so back-and-forth navigation doesn't spam writes.
   useEffect(() => {
-    incrementViews({ id: listingId }).catch(() => {});
-    recordViewed(listingId);
+    recordViewed(listingId)
+      .then((fresh) => {
+        if (fresh) incrementViews({ id: listingId }).catch(() => {});
+      })
+      .catch(() => {});
   }, [listingId, incrementViews]);
 
   const saved = isSaved(listingId);
@@ -70,23 +87,45 @@ export default function ListingDetail() {
     if (!toggleSave(listingId)) router.push('/login');
   };
 
-  const openChat = async () => {
+  const openChat = async (prefill?: string) => {
     if (!userId) return router.push('/login');
     if (listing?.ownerId === userId) return; // own listing — no self-chat
-    if (!chatClient || !listing?.ownerId) return;
+    if (!listing?.ownerId) return;
+    if (sending) return; // guard double-taps so we don't spam the same message
+    setSending(true);
     try {
-      // Distinct 1:1 channel keyed by its members — reused on repeat opens.
-      const channel = chatClient.channel('messaging', {
-        members: [userId, listing.ownerId],
-      });
-      await channel.watch();
+      // Reuse (or create) the buyer↔seller thread for this listing.
+      const threadId = await openThread({ meId: userId, listingId });
+      // Send the typed/quick message straight away so the seller sees it.
+      const text = prefill?.trim();
+      if (text) {
+        await sendMessage({
+          threadId,
+          senderId: userId,
+          senderName: user?.name ?? user?.phone ?? 'Xaridor',
+          text,
+        });
+      }
+      setMsg(''); // clear so the same text can't be re-sent by accident
       router.push({
         pathname: '/chat/[id]',
-        params: { id: channel.cid, name: listing.sellerName ?? 'Sotuvchi' },
+        params: {
+          id: threadId,
+          name: listing.sellerName ?? 'Sotuvchi',
+          sellerId: listing.ownerId,
+        },
       });
     } catch {
       Alert.alert('Xatolik', 'Suhbatni ochib boʻlmadi.');
+    } finally {
+      setSending(false);
     }
+  };
+
+  const sendBargain = () => {
+    const text = msg.trim();
+    if (!text) return;
+    openChat(text);
   };
 
   const onShare = () => {
@@ -102,9 +141,43 @@ export default function ListingDetail() {
       listingTitle: listing?.title ?? 'Eʼlon',
       reason,
       reporter: user?.name ?? user?.phone ?? 'Anonim',
+      sellerId: listing?.ownerId,
     })
       .then(() => Alert.alert('Yuborildi', 'Shikoyatingiz qabul qilindi. Rahmat!'))
       .catch(() => Alert.alert('Xatolik', 'Shikoyat yuborilmadi. Qayta urinib koʻring.'));
+  };
+
+  const callSeller = () => {
+    if (!listing?.phone) return;
+    Linking.openURL(`tel:${listing.phone.replace(/[^\d+]/g, '')}`).catch(() => {
+      Alert.alert('Xatolik', 'Telefon ilovasini ochib bo‘lmadi.');
+    });
+    if (listing.ownerId && listing.ownerId !== userId) {
+      setRatingOpen(true);
+    }
+  };
+
+  const submitSellerRating = async () => {
+    if (!listing?.ownerId) return;
+    if (!userId) {
+      setRatingOpen(false);
+      return router.push('/login');
+    }
+    try {
+      await submitReview({
+        sellerId: listing.ownerId,
+        authorId: userId,
+        authorName: user?.name ?? user?.phone ?? 'Anonim',
+        rating: stars,
+        text: reviewText.trim(),
+      });
+      setRatingOpen(false);
+      setReviewText('');
+      setStars(5);
+      Alert.alert('Rahmat', 'Bahoyingiz sotuvchi profiliga qo‘shildi.');
+    } catch {
+      Alert.alert('Xatolik', 'Baho yuborilmadi. Qayta urinib ko‘ring.');
+    }
   };
 
   if (!listing) {
@@ -184,6 +257,12 @@ export default function ListingDetail() {
             </View>
           </View>
 
+          {listing.priceIntel && (
+            <View className="px-4">
+              <PriceIntelCard intel={listing.priceIntel} />
+            </View>
+          )}
+
           {/* Details table */}
           <View className="mt-4 px-4">
             {details.map((d) => (
@@ -206,15 +285,46 @@ export default function ListingDetail() {
                 </AppText>
               </View>
               <View className="ml-3 flex-1">
-                <AppText className="font-semibold text-base text-foreground">{listing.sellerName}</AppText>
+                <View className="flex-row flex-wrap items-center gap-2">
+                  <AppText className="font-semibold text-base text-foreground">{listing.sellerName}</AppText>
+                  {listing.sellerTrust?.isDealer && <DealerBadge compact />}
+                </View>
                 <AppText className="text-sm text-muted">Sotuvchi profilini koʻrish</AppText>
+                {listing.sellerTrust && (
+                  <TrustBadges
+                    phoneVerified={listing.sellerTrust.phoneVerified}
+                    telegramLinked={listing.sellerTrust.telegramLinked}
+                    activeRecently={listing.sellerTrust.activeRecently}
+                    noReports={listing.sellerTrust.noReports}
+                    goodReviews={listing.sellerTrust.goodReviews}
+                    verified={listing.sellerTrust.verified}
+                    online={listing.sellerTrust.online}
+                    lastSeen={listing.sellerTrust.lastSeen}
+                    rating={listing.sellerTrust.rating}
+                    ratingCount={listing.sellerTrust.ratingCount}
+                    now={now}
+                  />
+                )}
               </View>
               <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
             </Pressable>
           )}
 
+          {listing.ownerId !== userId && (
+            <View className="mx-4 mt-3">
+              <SafetyBanner />
+            </View>
+          )}
+
+          {listing.ownerId !== userId && (
+            <View className="mx-4 mt-3">
+              <DealSafetyTips />
+            </View>
+          )}
+
           {/* Call seller */}
           <Pressable
+            onPress={callSeller}
             className="mx-4 mt-4 flex-row items-center rounded-2xl px-4 py-4 active:opacity-80"
             style={{ backgroundColor: BRAND_BLUE + '12' }}
           >
@@ -264,15 +374,16 @@ export default function ListingDetail() {
                   className="flex-1 text-base text-foreground"
                   style={{ fontFamily: 'Inter-Regular' }}
                 />
-                <Pressable hitSlop={8}>
-                  <Ionicons name="send" size={20} color={BRAND_BLUE} />
+                <Pressable hitSlop={8} onPress={sendBargain} disabled={sending}>
+                  <Ionicons name="send" size={20} color={sending ? '#9ca3af' : BRAND_BLUE} />
                 </Pressable>
               </View>
               <View className="flex-row flex-wrap gap-2">
                 {QUICK_MSGS.map((q) => (
                   <Pressable
                     key={q}
-                    onPress={() => setMsg(q)}
+                    onPress={() => openChat(q)}
+                    disabled={sending}
                     className="rounded-full bg-surface-secondary px-4 py-2.5 active:opacity-70"
                   >
                     <AppText className="text-[15px] text-foreground">{q}</AppText>
@@ -317,7 +428,7 @@ export default function ListingDetail() {
         <View className="flex-row gap-3 border-t border-border px-4 py-2.5">
           {listing.ownerId !== userId && (
             <Pressable
-              onPress={openChat}
+              onPress={() => openChat()}
               className="h-12 flex-1 flex-row items-center justify-center rounded-xl active:opacity-90"
               style={{ backgroundColor: BRAND_BLUE }}
             >
@@ -326,6 +437,7 @@ export default function ListingDetail() {
             </Pressable>
           )}
           <Pressable
+            onPress={callSeller}
             className="h-12 flex-[1.4] flex-row items-center justify-center rounded-xl active:opacity-90"
             style={{ backgroundColor: '#22C55E' }}
           >
@@ -359,7 +471,86 @@ export default function ListingDetail() {
             ))}
           </View>
         </Modal>
+
+        <RatingPromptSheet
+          open={ratingOpen}
+          sellerName={listing.sellerName ?? 'Sotuvchi'}
+          stars={stars}
+          text={reviewText}
+          onStars={setStars}
+          onText={setReviewText}
+          onClose={() => setRatingOpen(false)}
+          onSubmit={submitSellerRating}
+        />
       </SafeAreaView>
     </View>
   );
+}
+
+type PriceIntel = {
+  status: 'below_market' | 'good_price' | 'high_price';
+  medianPrice: number;
+  sampleSize: number;
+  differencePct: number;
+  currency: string;
+  basis: string;
+};
+
+function PriceIntelCard({ intel }: { intel: PriceIntel }) {
+  const meta =
+    intel.status === 'below_market'
+      ? {
+          icon: 'trending-down' as const,
+          title: 'Bozordan arzon',
+          body: 'Bu eʼlon oʼxshash variantlardan pastroq narxda.',
+          bg: '#ECFDF5',
+          color: '#047857',
+        }
+      : intel.status === 'high_price'
+        ? {
+            icon: 'trending-up' as const,
+            title: 'Bozordan qimmatroq',
+            body: 'Narx oʼxshash eʼlonlar medianasidan yuqoriroq.',
+            bg: '#FFF7ED',
+            color: '#C2410C',
+          }
+        : {
+            icon: 'checkmark-circle' as const,
+            title: 'Yaxshi narx',
+            body: 'Narx bozor medianasiga yaqin koʼrinadi.',
+            bg: '#EFF6FF',
+            color: BRAND_BLUE,
+          };
+  const diff = intel.differencePct > 0 ? `+${intel.differencePct}%` : `${intel.differencePct}%`;
+  return (
+    <View className="mt-3 rounded-2xl px-3 py-3" style={{ backgroundColor: meta.bg }}>
+      <View className="flex-row items-start">
+        <View className="h-9 w-9 items-center justify-center rounded-full bg-white">
+          <Ionicons name={meta.icon} size={20} color={meta.color} />
+        </View>
+        <View className="ml-3 flex-1">
+          <View className="flex-row flex-wrap items-center gap-2">
+            <AppText className="font-bold text-base" style={{ color: meta.color }}>
+              {meta.title}
+            </AppText>
+            <View className="rounded-full bg-white px-2 py-0.5">
+              <AppText className="text-xs font-semibold" style={{ color: meta.color }}>
+                {diff}
+              </AppText>
+            </View>
+          </View>
+          <AppText className="mt-0.5 text-sm leading-5 text-foreground">{meta.body}</AppText>
+          <AppText className="mt-1 text-xs leading-4 text-muted">
+            Mediana: {formatIntelPrice(intel.medianPrice, intel.currency)} · {intel.sampleSize} ta eʼlon
+          </AppText>
+          <AppText className="mt-0.5 text-xs leading-4 text-muted">{intel.basis}</AppText>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function formatIntelPrice(value: number, currency: string) {
+  const formatted = Math.round(value).toLocaleString('ru-RU');
+  return currency === 'usd' ? `${formatted} y.e.` : `${formatted} soʼm`;
 }

@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
     "@halolmia/backend": "^0.0.0",
     "@heroui/react": "^3.2.1",
     "clsx": "^2.1.1",

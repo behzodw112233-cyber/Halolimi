@@ -37,6 +37,12 @@
       "skillPath": "skills/convex-setup-auth/SKILL.md",
       "computedHash": "b1a940758751c5b2fdc6ced105b19927a1655f0c1d4bd2fd5536dc3264202c00"
     },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "9f98aca777d2e2dea552edbd87a76d92a219c63e0ca8cac052d92acef562e7bc"
+    },
     "stream": {
       "source": "getstream/agent-skills",
       "sourceType": "github",
@@ -84,6 +90,12 @@
       "sourceType": "github",
       "skillPath": "skills/stream-swift/SKILL.md",
       "computedHash": "dc36a570d89cb6ac312c293e297d809d6b09289c319095b021aaa10bcc28da45"
+    },
+    "vercel-react-native-skills": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-native-skills/SKILL.md",
+      "computedHash": "a804b4e848059822638c390359976f7021380bcefb1469d473aa4e9202c15ecb"
     }
   }
 }

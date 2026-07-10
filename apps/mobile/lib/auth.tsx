@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 
 const KEY = 'halolmi_auth';
 
@@ -59,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const getOrCreate = useMutation(api.users.getOrCreate);
+  const heartbeat = useMutation(api.users.heartbeat);
   const user = useQuery(api.users.get, userId ? { id: userId } : 'skip');
 
   // Hydrate persisted identity on mount.
@@ -114,6 +115,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, userId]);
+
+  // Presence heartbeat powers seller "online / last seen" trust signals.
+  useEffect(() => {
+    if (!userId) return;
+    const ping = () => {
+      if (AppState.currentState === 'active') heartbeat({ id: userId }).catch(() => {});
+    };
+    ping();
+    const interval = setInterval(ping, 45_000);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') ping();
+    });
+    return () => {
+      clearInterval(interval);
+      sub.remove();
+    };
+  }, [heartbeat, userId]);
 
   return (
     <AuthContext.Provider

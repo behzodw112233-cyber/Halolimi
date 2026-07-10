@@ -13,6 +13,14 @@ import { CATEGORY_IMAGES } from '../../constants/category-images';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 
+const METHOD_MAP: Record<string, string> = { click: 'click', payme: 'payme', uzcard: 'inPAY' };
+
+const PAYMENTS = [
+  { id: 'uzcard', label: 'Uzcard/Humo', color: '#1E3A8A' },
+  { id: 'payme', label: 'Payme', color: '#33CCCC' },
+  { id: 'click', label: 'Click', color: BRAND_BLUE },
+];
+
 const TOPUP_PRESETS = [10000, 25000, 50000, 100000];
 const fmtSom = (n: number) => `${n.toLocaleString('ru-RU')} soʻm`;
 
@@ -30,6 +38,7 @@ export default function Profile() {
     api.listings.byOwner,
     userId ? { ownerId: userId } : 'skip'
   );
+  const settings = useQuery(api.settings.get);
 
   // --- inPAY wallet top-up ---
   const createInvoice = useAction(api.inpay.createInvoice);
@@ -38,23 +47,34 @@ export default function Profile() {
   const [orderId, setOrderId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const invoice = useQuery(api.inpay.byOrder, orderId ? { orderId } : 'skip');
+  const enabledPayments = PAYMENTS.filter((p) => {
+    if (!settings) return true;
+    if (p.id === 'payme') return settings.payme;
+    if (p.id === 'click') return settings.click;
+    if (p.id === 'uzcard') return settings.uzcard;
+    return true;
+  });
 
   useEffect(() => {
     if (!invoice) return;
     if (invoice.status === 'success') {
       Alert.alert('Toʻldirildi', `Hisobingizga ${fmtSom(invoice.amount)} qoʻshildi.`);
-      setOrderId(null);
+      setTimeout(() => setOrderId(null), 0);
     } else if (invoice.status === 'failed' || invoice.status === 'cancelled') {
       Alert.alert('Toʻlov amalga oshmadi', 'Qayta urinib koʻring.');
-      setOrderId(null);
+      setTimeout(() => setOrderId(null), 0);
     }
   }, [invoice]);
 
-  const startTopup = async (som: number) => {
+  const startTopup = async (som: number, methodId = 'inPAY') => {
     if (!userId || !Number.isFinite(som) || som < 1000 || busy) return;
     setBusy(true);
     try {
-      const { orderId: oid, payUrl } = await createInvoice({ userId, amount: Math.round(som) });
+      const { orderId: oid, payUrl } = await createInvoice({
+        userId,
+        amount: Math.round(som),
+        method: METHOD_MAP[methodId] ?? 'inPAY',
+      });
       setOrderId(oid);
       setTopupOpen(false);
       setAmount('');
@@ -78,23 +98,25 @@ export default function Profile() {
             </Pressable>
           </View>
 
-          <View className="flex-1 items-center justify-center px-8">
-            <View className="mb-5 h-20 w-20 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE + '1A' }}>
-              <Ionicons name="person-outline" size={38} color={BRAND_BLUE} />
+          <View className="px-4 pt-8">
+            <View className="items-center rounded-2xl bg-surface px-5 py-6">
+              <View className="mb-4 h-16 w-16 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE + '1A' }}>
+                <Ionicons name="person-outline" size={32} color={BRAND_BLUE} />
+              </View>
+              <AppText className="mb-2 text-center font-bold text-xl text-foreground">
+                Hisobingizga kiring
+              </AppText>
+              <AppText className="mb-6 text-center text-base leading-6 text-muted">
+                Eʼlon joylash, saqlash va sotuvchilar bilan bogʻlanish uchun kiring.
+              </AppText>
+              <Pressable
+                onPress={() => router.push('/login')}
+                className="h-14 w-full items-center justify-center rounded-2xl active:opacity-90"
+                style={{ backgroundColor: BRAND_BLUE }}
+              >
+                <AppText className="font-semibold text-base text-white">Kirish</AppText>
+              </Pressable>
             </View>
-            <AppText className="mb-2 text-center font-bold text-xl text-foreground">
-              Hisobingizga kiring
-            </AppText>
-            <AppText className="mb-8 text-center text-base leading-6 text-muted">
-              Eʼlon joylash, saqlash va sotuvchilar bilan bogʻlanish uchun kiring.
-            </AppText>
-            <Pressable
-              onPress={() => router.push('/login')}
-              className="h-14 w-full items-center justify-center rounded-2xl active:opacity-90"
-              style={{ backgroundColor: BRAND_BLUE }}
-            >
-              <AppText className="font-semibold text-base text-white">Kirish</AppText>
-            </Pressable>
           </View>
         </SafeAreaView>
       </View>
@@ -254,11 +276,28 @@ export default function Profile() {
               style={{ borderColor: BRAND_BLUE, fontFamily: 'Inter-Regular' }}
             />
 
+            <View className="mb-1 flex-row flex-wrap justify-between">
+              {enabledPayments.map((p) => (
+                <Pressable
+                  key={p.id}
+                  onPress={() => startTopup(Number(amount), p.id)}
+                  disabled={busy || Number(amount) < 1000}
+                  className="mb-3 items-center justify-center rounded-2xl border border-border p-4 active:opacity-70"
+                  style={{ width: '48%', height: 96, opacity: busy || Number(amount) < 1000 ? 0.5 : 1 }}
+                >
+                  <View className="mb-2 rounded-lg px-3 py-1.5" style={{ backgroundColor: p.color }}>
+                    <AppText className="font-bold text-sm text-white">{p.label.split('/')[0]}</AppText>
+                  </View>
+                  <AppText className="text-sm text-foreground">{p.label}</AppText>
+                </Pressable>
+              ))}
+            </View>
+
             <Pressable
               onPress={() => startTopup(Number(amount))}
               disabled={busy || Number(amount) < 1000}
-              className="h-14 flex-row items-center justify-center rounded-xl active:opacity-90"
-              style={{ backgroundColor: BRAND_BLUE, opacity: busy || Number(amount) < 1000 ? 0.5 : 1 }}
+              className="hidden"
+              style={{ display: 'none' }}
             >
               {busy ? (
                 <ActivityIndicator color="#fff" />
@@ -268,6 +307,12 @@ export default function Profile() {
                 </AppText>
               )}
             </Pressable>
+            {busy ? (
+              <View className="mt-2 flex-row items-center justify-center">
+                <ActivityIndicator color={BRAND_BLUE} />
+                <AppText className="ml-2 text-sm text-muted">Tolov ochilmoqda...</AppText>
+              </View>
+            ) : null}
             <AppText className="mt-3 text-center text-xs text-muted">
               Toʻlov inPAY orqali — Click, Payme yoki karta
             </AppText>

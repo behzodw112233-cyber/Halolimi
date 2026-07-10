@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   ClipboardList,
+  Map,
   ListOrdered,
   LogOut,
   Megaphone,
@@ -18,6 +19,7 @@ import {
   ShieldCheck,
   Star,
   Users,
+  Video,
   type LucideIcon,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -33,9 +35,11 @@ const NAV: NavItem[] = [
   { label: 'Boshqaruv paneli', icon: LayoutDashboard, href: '/' },
   { label: 'Eʼlonlar', icon: ClipboardList, href: '/elonlar' },
   { label: 'Feed boshqaruvi', icon: ListOrdered, href: '/feed' },
+  { label: 'Plan', icon: Map, href: '/plan' },
   { label: 'Tekshiruv', icon: ShieldCheck, href: '/tekshiruv' },
   { label: 'Foydalanuvchilar', icon: Users, href: '/foydalanuvchilar' },
   { label: 'Kategoriyalar', icon: LayoutGrid, href: '/kategoriyalar' },
+  { label: 'Rasmiy dilerlar', icon: Video, href: '/dilerlar' },
   { label: 'Reklama', icon: Megaphone, href: '/reklama' },
   { label: 'Shikoyatlar', icon: Flag, href: '/shikoyatlar' },
   { label: 'Sharhlar', icon: Star, href: '/sharhlar' },

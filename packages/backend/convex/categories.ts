@@ -1,12 +1,35 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 
+/**
+ * Built-in breed/type lists per category. Served when a category has no
+ * admin-set `breeds`, so the app always has sensible options out of the box.
+ * Once an admin edits a category's breeds, that list wins.
+ */
+const DEFAULT_BREEDS: Record<string, string[]> = {
+  cattle: ['Golshteyn', 'Simmental', 'Shvits', 'Qora-ola', 'Angus', 'Jersey', 'Mahalliy zot'],
+  sheep: ['Hisor', 'Qorakoʻl', 'Jaydari', 'Merinos', 'Edilboy', 'Mahalliy'],
+  horses: ['Qorabayir', 'Oʻrta Osiyo', 'Arab', 'Yorgʻa', 'Toy zoti'],
+  poultry: ['Broyler', 'Tuxum tovuq', 'Mahalliy tovuq', 'Kurka', 'Oʻrdak', 'Gʻoz'],
+  pets: ['It', 'Mushuk', 'Toʻtiqush', 'Dekorativ', 'Boshqa'],
+  rabbits: ['Kaliforniya', 'Serebro', 'Flandr', 'Mahalliy'],
+  fish: ['Akvarium baliqlari', 'Tovus baliq', 'Guppi', 'Boshqa'],
+  supplies: ['Yem-xashak', 'Anjomlar', 'Dori-darmon', 'Boshqa'],
+};
+
+/** Resolve a category's breeds: admin-set list if any, otherwise the defaults. */
+const breedsFor = (c: { slug: string; breeds?: string[] }) =>
+  c.breeds && c.breeds.length ? c.breeds : DEFAULT_BREEDS[c.slug] ?? [];
+
 /** Active categories only — consumed by the app sell grid and the bot. */
 export const list = query({
   args: {},
   handler: async (ctx) => {
     const rows = await ctx.db.query('categories').collect();
-    return rows.filter((c) => c.active).sort((a, b) => a.order - b.order);
+    return rows
+      .filter((c) => c.active)
+      .sort((a, b) => a.order - b.order)
+      .map((c) => ({ ...c, breeds: breedsFor(c) }));
   },
 });
 
@@ -18,8 +41,21 @@ export const withCounts = query({
     const listings = await ctx.db.query('listings').collect();
     return cats.map((c) => ({
       ...c,
+      breeds: breedsFor(c),
       count: listings.filter((l) => l.category === c.slug).length,
     }));
+  },
+});
+
+/** Replace a category's breed/type list (admin panel). Blanks/dupes are dropped. */
+export const setBreeds = mutation({
+  args: { id: v.id('categories'), breeds: v.array(v.string()) },
+  handler: async (ctx, { id, breeds }) => {
+    const cleaned = breeds
+      .map((b) => b.trim())
+      .filter((b) => b.length > 0)
+      .filter((b, i, arr) => arr.indexOf(b) === i);
+    await ctx.db.patch(id, { breeds: cleaned });
   },
 });
 

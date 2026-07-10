@@ -1,10 +1,8 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import { AdminGate } from '@/components/admin-gate';
 import { ConvexClientProvider } from '@/components/convex-provider';
+import '@excalidraw/excalidraw/index.css';
 import './globals.css';
-
-const inter = Inter({ subsets: ['latin', 'cyrillic'] });
 
 export const metadata: Metadata = {
   title: 'Halolmi — Admin panel',
@@ -18,7 +16,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="uz">
-      <body className={inter.className}>
+      <body>
         <ConvexClientProvider>
           <AdminGate>{children}</AdminGate>
         </ConvexClientProvider>

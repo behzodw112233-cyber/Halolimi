@@ -18,19 +18,23 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { HeroUINativeProvider } from 'heroui-native';
+import { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ConvexClientProvider } from '../components/convex-provider';
 import { AuthProvider } from '../lib/auth';
-import { StreamProviders } from '../lib/stream';
+import { PushManager } from '../lib/push';
 import '../global.css';
 
+// Keep the branded splash on screen until fonts are ready — otherwise the user
+// stares at a blank white screen while the (slow, dev-mode) JS bundle boots.
+SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 300, fade: true });
 
 export default function RootLayout() {
   // Keys must match the font-family names referenced in global.css.
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     'Inter-Regular': Inter_400Regular,
     'Inter-Medium': Inter_500Medium,
     'Inter-SemiBold': Inter_600SemiBold,
@@ -42,7 +46,12 @@ export default function RootLayout() {
     'Fredoka-Bold': Fredoka_700Bold,
   });
 
-  if (!fontsLoaded) {
+  // Hide the splash only once fonts resolve (or fail) — never leave it stuck.
+  useEffect(() => {
+    if (fontsLoaded || fontError) SplashScreen.hideAsync().catch(() => {});
+  }, [fontsLoaded, fontError]);
+
+  if (!fontsLoaded && !fontError) {
     return null;
   }
 
@@ -51,27 +60,27 @@ export default function RootLayout() {
       <SafeAreaProvider>
       <ConvexClientProvider>
       <AuthProvider>
-      <StreamProviders>
       <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
+        <PushManager />
         <StatusBar style="auto" />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="language" />
           <Stack.Screen name="intent" />
           <Stack.Screen name="login" />
+          <Stack.Screen name="search" />
           <Stack.Screen name="sell" />
           <Stack.Screen name="create" />
           <Stack.Screen name="promote" />
           <Stack.Screen name="review" />
           <Stack.Screen name="listing/[id]" />
+          <Stack.Screen name="dealer/[id]" />
           <Stack.Screen name="chat/[id]" />
-          <Stack.Screen name="call/[id]" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="notifications" />
           <Stack.Screen name="settings" />
         </Stack>
       </HeroUINativeProvider>
-      </StreamProviders>
       </AuthProvider>
       </ConvexClientProvider>
       </SafeAreaProvider>

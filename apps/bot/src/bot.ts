@@ -1,4 +1,5 @@
 import { Bot, Context, InputFile, session, type SessionFlavor } from 'grammy';
+import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { fileURLToPath } from 'node:url';
 import { BREEDS, CITIES } from './data.js';
 import { api, categoryBySlug, convex, getCategories, type Listing } from './convex.js';
@@ -31,6 +32,8 @@ interface SessionData {
   sell?: SellDraft;
   /** Pending app-login handshake token (set when opened via t.me/bot?start=<token>). */
   authToken?: string;
+  /** Action to continue after the user shares their Telegram contact. */
+  pendingAction?: 'save' | 'saved' | 'kabinet' | 'sell';
 }
 
 type MyContext = Context & SessionFlavor<SessionData>;
@@ -47,6 +50,53 @@ export function createBot(token: string) {
   // ---------- helpers ----------
   const listingsFor = (category: string) =>
     convex.query(api.listings.listActive, { category });
+
+  const telegramId = (ctx: MyContext) => (ctx.from?.id ? String(ctx.from.id) : null);
+
+  async function linkedProfile(ctx: MyContext) {
+    const id = telegramId(ctx);
+    return id ? await convex.query(api.authTelegram.botProfile, { telegramId: id }) : null;
+  }
+
+  async function requestLink(ctx: MyContext, action: SessionData['pendingAction']) {
+    ctx.session.pendingAction = action;
+    await ctx.reply(
+      '🔗 <b>Hisobni ulash</b>\n\n' +
+        'Ilovadagi saqlanganlar, eʼlonlar va hisobingiz bilan sinxronlash uchun telefon raqamingizni ulashing 👇',
+      { parse_mode: 'HTML', reply_markup: phoneRequestKeyboard() }
+    );
+  }
+
+  async function currentListing(ctx: MyContext) {
+    const { category, index } = ctx.session.browse;
+    if (!category) return null;
+    const list = await listingsFor(category);
+    return list[index] ?? null;
+  }
+
+  async function isSavedBy(userId: Id<'users'>, listingId: Id<'listings'>) {
+    const ids = await convex.query(api.saved.ids, { userId });
+    return ids.includes(listingId);
+  }
+
+  async function toggleCurrentSaved(ctx: MyContext, userId: Id<'users'>) {
+    const l = await currentListing(ctx);
+    if (!l) {
+      await ctx.reply('Eʼlon topilmadi.', { reply_markup: backToMenuKeyboard() });
+      return;
+    }
+    const saved = await convex.mutation(api.saved.toggle, { userId, listingId: l._id });
+    await ctx.reply(saved ? '💚 Saqlandi' : 'Saqlanganlardan olib tashlandi');
+  }
+
+  async function startSell(ctx: MyContext) {
+    ctx.session.sell = { step: 'category' };
+    const cats = await getCategories();
+    await ctx.reply('➕ <b>Nima sotyapsiz?</b>\n\nKategoriyani tanlang:', {
+      parse_mode: 'HTML',
+      reply_markup: categoriesKeyboard(cats, 'scat'),
+    });
+  }
 
   async function listingCaption(l: Listing) {
     const cat = await categoryBySlug(l.category);
@@ -72,7 +122,9 @@ export function createBot(token: string) {
     const i = Math.max(0, Math.min(index, list.length - 1));
     ctx.session.browse.index = i;
     const l = list[i];
-    const kb = listingKeyboard(i, list.length, ctx.session.saved.includes(l._id));
+    const profile = await linkedProfile(ctx);
+    const saved = profile ? await isSavedBy(profile.userId, l._id) : false;
+    const kb = listingKeyboard(i, list.length, saved);
     const photo = new InputFile(photoFor(l.category));
     const caption = await listingCaption(l);
 
@@ -170,18 +222,24 @@ export function createBot(token: string) {
   });
 
   bot.callbackQuery('save', async (ctx) => {
+    const profile = await linkedProfile(ctx);
+    if (!profile) {
+      await ctx.answerCallbackQuery({ text: 'Avval hisobni ulang' });
+      await requestLink(ctx, 'save');
+      return;
+    }
     const { category, index } = ctx.session.browse;
     if (!category) return ctx.answerCallbackQuery();
     const list = await listingsFor(category);
     const l = list[index];
     if (!l) return ctx.answerCallbackQuery();
-    const isSaved = ctx.session.saved.includes(l._id);
-    ctx.session.saved = isSaved
-      ? ctx.session.saved.filter((x) => x !== l._id)
-      : [...ctx.session.saved, l._id];
-    await ctx.answerCallbackQuery({ text: isSaved ? 'Saqlanganlardan olib tashlandi' : '❤️ Saqlandi' });
+    const saved = await convex.mutation(api.saved.toggle, {
+      userId: profile.userId,
+      listingId: l._id,
+    });
+    await ctx.answerCallbackQuery({ text: saved ? '❤️ Saqlandi' : 'Saqlanganlardan olib tashlandi' });
     await ctx.editMessageReplyMarkup({
-      reply_markup: listingKeyboard(index, list.length, !isSaved),
+      reply_markup: listingKeyboard(index, list.length, saved),
     });
   });
 
@@ -199,27 +257,40 @@ export function createBot(token: string) {
   // ---------- saved ----------
   bot.callbackQuery('saved', async (ctx) => {
     await ctx.answerCallbackQuery();
-    const all = await convex.query(api.listings.list, {});
-    const items = all.filter((l) => ctx.session.saved.includes(l._id));
-    if (items.length === 0) {
+    const profile = await linkedProfile(ctx);
+    if (!profile) {
+      await requestLink(ctx, 'saved');
+      return;
+    }
+    const realItems = await convex.query(api.saved.list, { userId: profile.userId });
+    if (realItems.length === 0) {
       await ctx.editMessageText('❤️ <b>Saqlangan eʼlonlar</b>\n\nHozircha boʻsh. Eʼlonga ❤️ bosing.', {
         parse_mode: 'HTML',
         reply_markup: backToMenuKeyboard(),
       });
       return;
     }
-    const text =
+    const realText =
       '❤️ <b>Saqlangan eʼlonlar</b>\n\n' +
-      items.map((l) => `<b>${l.title}</b>\n   ${l.price} · ${l.city}`).join('\n\n');
-    await ctx.editMessageText(text, { parse_mode: 'HTML', reply_markup: backToMenuKeyboard() });
+      realItems.map((l) => `<b>${l.title}</b>\n   ${l.price} · ${l.city}`).join('\n\n');
+    await ctx.editMessageText(realText, { parse_mode: 'HTML', reply_markup: backToMenuKeyboard() });
   });
 
   // ---------- kabinet ----------
   bot.callbackQuery('kabinet', async (ctx) => {
     await ctx.answerCallbackQuery();
-    const name = ctx.from?.first_name ?? 'Foydalanuvchi';
+    const profile = await linkedProfile(ctx);
+    if (!profile) {
+      await requestLink(ctx, 'kabinet');
+      return;
+    }
     await ctx.editMessageText(
-      `👤 <b>Kabinet</b>\n\nSalom, ${name}!\n\n❤️ Saqlangan: ${ctx.session.saved.length} ta\n📋 Eʼlonlaringiz: 0 ta\n💰 Hisob: 0 soʻm`,
+      `👤 <b>Kabinet</b>\n\n` +
+        `Salom, ${profile.name}!\n\n` +
+        `❤️ Saqlangan: ${profile.savedCount} ta\n` +
+        `📋 Eʼlonlaringiz: ${profile.listingCount} ta\n` +
+        `⏳ Tekshiruvda: ${profile.pendingListingCount} ta\n` +
+        `💰 Hisob: ${(profile.balance ?? 0).toLocaleString('ru-RU')} soʻm`,
       { parse_mode: 'HTML', reply_markup: mainMenuKeyboard() }
     );
   });
@@ -252,6 +323,12 @@ export function createBot(token: string) {
   bot.callbackQuery('sell', async (ctx) => {
     ctx.session.sell = { step: 'category' };
     await ctx.answerCallbackQuery();
+    const profile = await linkedProfile(ctx);
+    if (!profile) {
+      ctx.session.sell = undefined;
+      await requestLink(ctx, 'sell');
+      return;
+    }
     const cats = await getCategories();
     await ctx.editMessageText('➕ <b>Nima sotyapsiz?</b>\n\nKategoriyani tanlang:', {
       parse_mode: 'HTML',
@@ -297,19 +374,25 @@ export function createBot(token: string) {
   async function finishSell(ctx: MyContext) {
     const d = ctx.session.sell!;
     const cat = await categoryBySlug(d.category ?? '');
+    const profile = await linkedProfile(ctx);
+    if (!profile) {
+      await requestLink(ctx, 'sell');
+      return;
+    }
     ctx.session.sell = undefined;
     await convex.mutation(api.listings.create, {
       title: `${cat?.name ?? 'Hayvon'} · ${d.breed ?? ''}`.trim(),
       price: d.price ?? '—',
       category: d.category ?? 'cattle',
       city: d.city ?? 'Toshkent',
-      phone: d.phone ?? '',
+      phone: d.phone ?? profile.phone,
       specs: [
         { label: 'Vazni', value: `${d.weight ?? '—'} kg` },
         { label: 'Zot', value: d.breed ?? '—' },
       ],
       desc: '',
-      sellerName: ctx.from?.first_name ?? 'Sotuvchi',
+      sellerName: profile.name || ctx.from?.first_name || 'Sotuvchi',
+      ownerId: profile.userId,
     });
     await ctx.reply(
       `🎉 <b>Eʼlon qabul qilindi!</b>\n\n` +
@@ -330,6 +413,7 @@ export function createBot(token: string) {
           token,
           phone: ctx.message.contact.phone_number,
           name: ctx.from?.first_name,
+          telegramId: telegramId(ctx) ?? undefined,
         });
         await ctx.reply(
           '✅ <b>Tayyor!</b>\n\nHalolmi ilovasiga qayting — siz avtomatik tarzda tizimga kirdingiz.',
@@ -340,6 +424,47 @@ export function createBot(token: string) {
         await ctx.reply('❌ Kirishda xatolik. Ilovada qaytadan urinib koʻring.', {
           reply_markup: { remove_keyboard: true },
         });
+      }
+      return;
+    }
+
+    const tgId = telegramId(ctx);
+    if (tgId) {
+      const userId = await convex.mutation(api.authTelegram.linkBot, {
+        telegramId: tgId,
+        phone: ctx.message.contact.phone_number,
+        name: ctx.from?.first_name,
+      });
+      const action = ctx.session.pendingAction;
+      ctx.session.pendingAction = undefined;
+      const draft = ctx.session.sell;
+
+      await ctx.reply('✅ Hisob ulandi. Endi bot va ilova bir xil maʼlumotdan foydalanadi.', {
+        parse_mode: 'HTML',
+        reply_markup: { remove_keyboard: true },
+      });
+
+      if (!action && draft?.step === 'phone') {
+        draft.phone = ctx.message.contact.phone_number;
+        await finishSell(ctx);
+      } else if (action === 'save') {
+        await toggleCurrentSaved(ctx, userId);
+      } else if (action === 'sell') {
+        await startSell(ctx);
+      } else if (action === 'kabinet') {
+        const profile = await convex.query(api.authTelegram.botProfile, { telegramId: tgId });
+        await ctx.reply(
+          profile
+            ? `👤 <b>Kabinet</b>\n\nSalom, ${profile.name}!\n\n❤️ Saqlangan: ${profile.savedCount} ta\n📋 Eʼlonlaringiz: ${profile.listingCount} ta\n💰 Hisob: ${(profile.balance ?? 0).toLocaleString('ru-RU')} soʻm`
+            : 'Kabinetni ochib boʻlmadi.',
+          { parse_mode: 'HTML', reply_markup: mainMenuKeyboard() }
+        );
+      } else if (action === 'saved') {
+        await ctx.reply('❤️ Saqlangan eʼlonlarni ochish uchun menyudan “Saqlangan” ni bosing.', {
+          reply_markup: mainMenuKeyboard(),
+        });
+      } else {
+        await ctx.reply('🏠 Asosiy menyu', { reply_markup: mainMenuKeyboard() });
       }
       return;
     }

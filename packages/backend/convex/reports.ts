@@ -12,10 +12,31 @@ export const create = mutation({
     listingTitle: v.string(),
     reason: v.string(),
     reporter: v.string(),
+    sellerId: v.optional(v.id('users')),
   },
-  handler: (ctx, { listingTitle, reason, reporter }) =>
+  handler: (ctx, { listingTitle, reason, reporter, sellerId }) =>
     ctx.db.insert('reports', {
+      sellerId,
       listingTitle,
+      reason,
+      reporter,
+      date: new Date().toLocaleDateString('ru-RU'),
+      status: 'new',
+    }),
+});
+
+/** A buyer flags a seller profile. Stored in the same admin report queue. */
+export const reportSeller = mutation({
+  args: {
+    sellerId: v.optional(v.id('users')),
+    sellerName: v.string(),
+    reason: v.string(),
+    reporter: v.string(),
+  },
+  handler: (ctx, { sellerId, sellerName, reason, reporter }) =>
+    ctx.db.insert('reports', {
+      sellerId,
+      listingTitle: `Sotuvchi: ${sellerName}`,
       reason,
       reporter,
       date: new Date().toLocaleDateString('ru-RU'),

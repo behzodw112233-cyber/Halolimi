@@ -1,5 +1,6 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
+import { internal } from './_generated/api';
 
 /** Saved listing ids for a user (for heart states). */
 export const ids = query({
@@ -37,10 +38,11 @@ export const list = query({
 export const countFor = query({
   args: { listingId: v.id('listings') },
   handler: async (ctx, { listingId }) => {
-    // Indexes are keyed by userId first, so there's no cheap range on listingId;
-    // the saved set is small per app, so a filtered scan is fine here.
-    const all = await ctx.db.query('saved').collect();
-    return all.filter((r) => r.listingId === listingId).length;
+    const rows = await ctx.db
+      .query('saved')
+      .withIndex('by_listing', (q) => q.eq('listingId', listingId))
+      .collect();
+    return rows.length;
   },
 });
 
@@ -56,6 +58,16 @@ export const toggle = mutation({
       return false;
     }
     await ctx.db.insert('saved', { userId, listingId });
+    // Nudge the seller that a buyer is interested (never notify self-saves).
+    const listing = await ctx.db.get(listingId);
+    if (listing?.ownerId && listing.ownerId !== userId) {
+      await ctx.scheduler.runAfter(0, internal.push.send, {
+        userId: listing.ownerId,
+        title: 'Kimdir qiziqmoqda 👀',
+        body: `Bir xaridor "${listing.title}" eʼloningizni saqladi.`,
+        data: { type: 'listing', listingId },
+      });
+    }
     return true;
   },
 });

@@ -5,6 +5,7 @@ import { Pressable, View } from 'react-native';
 import { CATEGORY_IMAGES } from '../constants/category-images';
 import { BRAND_BLUE } from '../constants/theme';
 import { AppText } from './app-text';
+import { DealerBadge, VerifiedSellerBadge } from './trust-safety';
 
 export interface CardListing {
   title: string;
@@ -13,7 +14,14 @@ export interface CardListing {
   city: string;
   specs: { label: string; value: string }[];
   photoUrls?: string[];
+  photoCount?: number;
   promoted?: boolean;
+  sellerTrust?: {
+    verified?: boolean;
+    isDealer?: boolean;
+    rating?: number;
+    ratingCount?: number;
+  } | null;
 }
 
 export function ListingCard({
@@ -21,18 +29,22 @@ export function ListingCard({
   onPress,
   saved: savedProp,
   onToggleSave,
+  onMessage,
 }: {
   listing: CardListing;
   onPress?: () => void;
   /** Controlled saved state. When `onToggleSave` is provided this is authoritative. */
   saved?: boolean;
   onToggleSave?: () => void;
+  /** When provided (buyer viewing someone else's listing), shows a quick "ask price" chat button. */
+  onMessage?: () => void;
 }) {
   const [localSaved, setLocalSaved] = useState(false);
   const controlled = !!onToggleSave;
   const saved = controlled ? !!savedProp : localSaved;
   const toggleSave = onToggleSave ?? (() => setLocalSaved((s) => !s));
   const photo = listing.photoUrls?.[0];
+  const photoCount = listing.photoCount ?? listing.photoUrls?.length ?? 0;
   const image = photo ? { uri: photo } : CATEGORY_IMAGES[listing.category];
 
   return (
@@ -48,6 +60,16 @@ export function ListingCard({
               <AppText className="text-[11px] font-bold" style={{ color: '#78350F' }}>TOP</AppText>
             </View>
           )}
+          {listing.sellerTrust?.verified && (
+            <View className="mb-1 self-start">
+              <VerifiedSellerBadge compact />
+            </View>
+          )}
+          {listing.sellerTrust?.isDealer && (
+            <View className="mb-1 self-start">
+              <DealerBadge compact />
+            </View>
+          )}
           <AppText
             className="font-semibold text-[15px] leading-5"
             style={{ color: BRAND_BLUE }}
@@ -56,13 +78,28 @@ export function ListingCard({
             {listing.title}
           </AppText>
         </View>
-        <Pressable onPress={toggleSave} hitSlop={10}>
-          <Ionicons
-            name={saved ? 'heart' : 'heart-outline'}
-            size={24}
-            color={saved ? '#EF4444' : BRAND_BLUE}
-          />
-        </Pressable>
+        <View className="flex-row items-center gap-2.5">
+          {onMessage && (
+            <Pressable
+              onPress={onMessage}
+              hitSlop={8}
+              className="h-8 flex-row items-center rounded-full px-2.5 active:opacity-70"
+              style={{ backgroundColor: BRAND_BLUE + '15' }}
+            >
+              <Ionicons name="chatbubble-ellipses" size={15} color={BRAND_BLUE} />
+              <AppText className="ml-1 text-[13px] font-semibold" style={{ color: BRAND_BLUE }}>
+                Narx?
+              </AppText>
+            </Pressable>
+          )}
+          <Pressable onPress={toggleSave} hitSlop={10}>
+            <Ionicons
+              name={saved ? 'heart' : 'heart-outline'}
+              size={24}
+              color={saved ? '#EF4444' : BRAND_BLUE}
+            />
+          </Pressable>
+        </View>
       </View>
 
       <AppText className="mb-3 mt-1 font-bold text-xl text-foreground">
@@ -80,10 +117,10 @@ export function ListingCard({
             contentFit={photo ? 'cover' : 'contain'}
             style={photo ? { width: '100%', height: '100%' } : { width: '86%', height: '86%' }}
           />
-          {!!listing.photoUrls?.length && (
+          {photoCount > 0 && (
             <View className="absolute bottom-1.5 left-1.5 flex-row items-center rounded-md bg-black/60 px-1.5 py-0.5">
               <Ionicons name="camera" size={12} color="white" />
-              <AppText className="ml-1 text-xs text-white">{listing.photoUrls.length}</AppText>
+              <AppText className="ml-1 text-xs text-white">{photoCount}</AppText>
             </View>
           )}
         </View>
@@ -104,6 +141,14 @@ export function ListingCard({
               {listing.city}
             </AppText>
           </View>
+          {!!listing.sellerTrust?.ratingCount && (
+            <View className="flex-row items-center">
+              <Ionicons name="star" size={15} color="#F59E0B" />
+              <AppText className="ml-2 text-[14px] text-muted" numberOfLines={1}>
+                {listing.sellerTrust.rating?.toFixed(1)} sotuvchi reytingi
+              </AppText>
+            </View>
+          )}
         </View>
       </View>
     </Pressable>

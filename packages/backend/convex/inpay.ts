@@ -15,6 +15,25 @@ declare const process: { env: Record<string, string | undefined> };
 
 const BASE = 'https://inpay.uz/api/v1';
 const MIN_AMOUNT = 1000;
+
+// Shapes of the inPAY API responses we consume.
+interface InpayAuthResponse {
+  success?: boolean;
+  bearer_token?: string;
+  message?: string;
+}
+interface InpayCreateResponse {
+  success?: boolean;
+  order_id?: string;
+  pay_url?: string;
+  message?: string;
+  error_code?: string;
+}
+interface InpayTransactionResponse {
+  success?: boolean;
+  status?: string;
+  payment_method?: string;
+}
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Authoritative promotion prices (UZS). The client never sends the amount for a
@@ -35,11 +54,41 @@ async function authorize(): Promise<string> {
     `${BASE}/authorization/?merchant_id=${id}&merchant_token=${token}`,
     { headers: { Accept: 'application/json' } }
   );
-  const data = await res.json();
+  const data = (await res.json()) as InpayAuthResponse;
   if (!data?.success || !data?.bearer_token) {
     throw new Error(data?.message ?? 'inPAY authorization failed');
   }
   return data.bearer_token as string;
+}
+
+function createError(data: InpayCreateResponse) {
+  const code = data.error_code ? `${data.error_code}: ` : '';
+  return new Error(`${code}${data.message ?? 'inPAY payment create failed'}`);
+}
+
+function createMerchantId() {
+  const id = process.env.INPAY_CREATE_MERCHANT_ID ?? process.env.INPAY_MERCHANT_ID;
+  if (!id) throw new Error('INPAY_MERCHANT_ID is not configured');
+  return id;
+}
+
+function callbackUrl() {
+  const site = process.env.CONVEX_SITE_URL;
+  if (!site) throw new Error('CONVEX_SITE_URL is not configured');
+  return `${site.replace(/\/$/, '')}/inpay/callback`;
+}
+
+function normalizeMethod(method?: string) {
+  if (!method || method === 'inPAY') return '';
+  return method;
+}
+
+function normalizeInvoiceStatus(status?: string): 'success' | 'failed' | 'cancelled' | 'pending' | null {
+  if (status === 'success') return 'success';
+  if (status === 'failed') return 'failed';
+  if (status === 'canceled' || status === 'cancelled') return 'cancelled';
+  if (status === 'pending') return 'pending';
+  return null;
 }
 
 /**
@@ -56,33 +105,29 @@ export const createInvoice = action({
     if (!Number.isFinite(amount) || amount < MIN_AMOUNT) {
       throw new Error(`Minimal summa ${MIN_AMOUNT} soʻm`);
     }
-    const id = process.env.INPAY_MERCHANT_ID;
-    const token = process.env.INPAY_MERCHANT_TOKEN;
-    const site = process.env.CONVEX_SITE_URL; // public https webhook host
     const bearer = await authorize();
 
     const res = await fetch(`${BASE}/create/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
       body: JSON.stringify({
-        merchant_id: id,
-        token,
+        merchant_id: createMerchantId(),
         amount: Math.round(amount),
         description: 'Halolmi hisobini toʻldirish',
-        payment_method: method ?? 'inPAY',
-        callback_url: `${site}/inpay/callback`,
+        payment_method: normalizeMethod(method),
+        callback_url: callbackUrl(),
       }),
     });
-    const data = await res.json();
-    if (!data?.success || !data?.pay_url || !data?.order_id) {
-      throw new Error(data?.message ?? 'inPAY toʻlovini yaratib boʻlmadi');
+    const data = (await res.json()) as InpayCreateResponse;
+    if (!data.success || !data.pay_url || !data.order_id) {
+      throw createError(data);
     }
 
     await ctx.runMutation(internal.inpay.createPending, {
       orderId: data.order_id,
       userId,
       amount: Math.round(amount),
-      method: method ?? 'inPAY',
+      method: methodLabel(method),
       payUrl: data.pay_url,
     });
     return { orderId: data.order_id as string, payUrl: data.pay_url as string };
@@ -126,33 +171,29 @@ export const createPromoteInvoice = action({
   ): Promise<{ orderId: string; payUrl: string }> => {
     const amount = TIER_PRICE[tier];
     if (!amount) throw new Error('Nomaʼlum tarif');
-    const id = process.env.INPAY_MERCHANT_ID;
-    const token = process.env.INPAY_MERCHANT_TOKEN;
-    const site = process.env.CONVEX_SITE_URL;
     const bearer = await authorize();
 
     const res = await fetch(`${BASE}/create/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
       body: JSON.stringify({
-        merchant_id: id,
-        token,
+        merchant_id: createMerchantId(),
         amount,
         description: `Reklama: ${tier.toUpperCase()}`,
-        payment_method: method ?? 'inPAY',
-        callback_url: `${site}/inpay/callback`,
+        payment_method: normalizeMethod(method),
+        callback_url: callbackUrl(),
       }),
     });
-    const data = await res.json();
-    if (!data?.success || !data?.pay_url || !data?.order_id) {
-      throw new Error(data?.message ?? 'inPAY toʻlovini yaratib boʻlmadi');
+    const data = (await res.json()) as InpayCreateResponse;
+    if (!data.success || !data.pay_url || !data.order_id) {
+      throw createError(data);
     }
 
     await ctx.runMutation(internal.inpay.createPending, {
       orderId: data.order_id,
       userId,
       amount,
-      method: method ?? 'inPAY',
+      method: methodLabel(method),
       payUrl: data.pay_url,
       purpose: 'promote',
       listingId,
@@ -169,18 +210,20 @@ export const createPromoteInvoice = action({
 export const verifyAndSettle = internalAction({
   args: { orderId: v.string() },
   handler: async (ctx, { orderId }) => {
+    const bearer = await authorize();
     const res = await fetch(`${BASE}/transactions/?order_id=${orderId}`, {
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', Authorization: `Bearer ${bearer}` },
     });
-    const data = await res.json();
-    if (!data?.success) return;
-    if (data.status === 'success') {
+    const data = (await res.json()) as InpayTransactionResponse;
+    if (!data.success) return;
+    const status = normalizeInvoiceStatus(data.status);
+    if (status === 'success') {
       await ctx.runMutation(internal.inpay.markPaid, {
         orderId,
         method: typeof data.payment_method === 'string' ? data.payment_method : undefined,
       });
-    } else if (data.status === 'failed' || data.status === 'cancelled') {
-      await ctx.runMutation(internal.inpay.markStatus, { orderId, status: data.status });
+    } else if (status === 'failed' || status === 'cancelled') {
+      await ctx.runMutation(internal.inpay.markStatus, { orderId, status });
     }
   },
 });
@@ -249,6 +292,38 @@ export const markStatus = internalMutation({
       .first();
     if (!inv || inv.status !== 'pending') return;
     await ctx.db.patch(inv._id, { status });
+  },
+});
+
+/** Admin: live inPAY invoice list with user/listing display data. */
+export const listInvoices = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query('invoices').collect();
+    const sorted = rows.sort((a, b) => b.createdAt - a.createdAt);
+    return Promise.all(
+      sorted.map(async (inv) => {
+        const [user, listing] = await Promise.all([
+          ctx.db.get(inv.userId),
+          inv.listingId ? ctx.db.get(inv.listingId) : Promise.resolve(null),
+        ]);
+        return {
+          ...inv,
+          userName: user?.name ?? 'Foydalanuvchi',
+          userPhone: user?.phone ?? '',
+          listingTitle: listing?.title ?? null,
+        };
+      })
+    );
+  },
+});
+
+/** Admin: ask inPAY for the current status of a pending invoice. */
+export const refreshInvoice = action({
+  args: { orderId: v.string() },
+  handler: async (ctx, { orderId }) => {
+    await ctx.runAction(internal.inpay.verifyAndSettle, { orderId });
+    return true;
   },
 });
 

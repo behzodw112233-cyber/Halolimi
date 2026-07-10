@@ -33,5 +33,5 @@ export function useSaved() {
     return true;
   };
 
-  return { isSaved, toggleSave, authed: !!userId };
+  return { isSaved, toggleSave, savedIds: savedIds ?? [], authed: !!userId };
 }

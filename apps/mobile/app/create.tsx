@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -21,6 +21,7 @@ import { BREEDS, CATEGORY_LABELS } from '../constants/breeds';
 import { UZ_CITIES } from '../constants/cities';
 import { BRAND_BLUE } from '../constants/theme';
 import { useAuth } from '../lib/auth';
+import { uploadToConvex } from '../lib/upload';
 
 const STEP_COUNT = 8;
 
@@ -63,8 +64,15 @@ export default function Create() {
   const [phoneError, setPhoneError] = useState(false);
   const [otpOpen, setOtpOpen] = useState(false);
 
-  const catLabel = CATEGORY_LABELS[category] ?? 'Hayvon';
-  const breeds = BREEDS[category] ?? [];
+  // Categories (with admin-editable breeds) come from the backend; fall back to
+  // the bundled defaults until the query resolves or if a slug is missing.
+  const cats = useQuery(api.categories.list) ?? [];
+  const catDoc = cats.find((c) => c.slug === category);
+  const catLabel = catDoc?.name ?? CATEGORY_LABELS[category] ?? 'Hayvon';
+  const breeds = useMemo(
+    () => (catDoc?.breeds?.length ? catDoc.breeds : BREEDS[category] ?? []),
+    [catDoc, category]
+  );
   const filteredBreeds = useMemo(
     () => breeds.filter((b) => b.toLowerCase().includes(query.toLowerCase())),
     [breeds, query]
@@ -121,20 +129,9 @@ export default function Create() {
   const uploadPhotos = async (): Promise<Id<'_storage'>[]> => {
     const ids: Id<'_storage'>[] = [];
     for (const uri of photos) {
-      try {
-        const res = await fetch(uri);
-        const blob = await res.blob();
-        const uploadUrl = await generateUploadUrl();
-        const upload = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': blob.type || 'image/jpeg' },
-          body: blob,
-        });
-        const { storageId } = await upload.json();
-        if (storageId) ids.push(storageId as Id<'_storage'>);
-      } catch {
-        /* skip failed uploads */
-      }
+      const uploadUrl = await generateUploadUrl();
+      const storageId = await uploadToConvex(uploadUrl, uri);
+      if (storageId) ids.push(storageId as Id<'_storage'>);
     }
     return ids;
   };
@@ -436,7 +433,13 @@ function OtpSheet({ open, phone, onClose, onVerified }: { open: boolean; phone: 
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    if (!open) { setCode(''); setSeconds(55); return; }
+    if (!open) {
+      const reset = setTimeout(() => {
+        setCode('');
+        setSeconds(55);
+      }, 0);
+      return () => clearTimeout(reset);
+    }
     const id = setInterval(() => setSeconds((s) => (s > 0 ? s - 1 : 0)), 1000);
     const t = setTimeout(() => inputRef.current?.focus(), 250);
     return () => { clearInterval(id); clearTimeout(t); };

@@ -1,11 +1,21 @@
 import { v } from 'convex/values';
+import { paginationOptsValidator } from 'convex/server';
 import type { Doc } from './_generated/dataModel';
-import { mutation, query, type QueryCtx } from './_generated/server';
+import { internal } from './_generated/api';
+import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { listingStatus, listingTier } from './schema';
 
 // Relative promotion strength per tier (multiplied by the admin promo weight).
 const TIER_WEIGHT: Record<string, number> = { alo: 1, zor: 2, vip: 4, lux: 8 };
 const DAY_MS = 24 * 60 * 60 * 1000;
+const ONLINE_MS = 3 * 60 * 1000;
+const RECENT_MS = 24 * 60 * 60 * 1000;
+const RELATED_SCAN_LIMIT = 32;
+const RECOMMENDATION_SCAN_LIMIT = 160;
+const PRICE_SAMPLE_LIMIT = 120;
+const PRICE_INTEL_TTL_MS = 6 * 60 * 60 * 1000;
+type PriceIntelCtx = QueryCtx | MutationCtx;
+type PriceIntelStatus = 'below_market' | 'good_price' | 'high_price';
 
 /** Attach resolved, servable image URLs from the listing's storage ids. */
 async function withUrls(ctx: QueryCtx, l: Doc<'listings'>) {
@@ -13,6 +23,47 @@ async function withUrls(ctx: QueryCtx, l: Doc<'listings'>) {
     ? await Promise.all(l.photos.map((id) => ctx.storage.getUrl(id)))
     : [];
   return { ...l, photoUrls: urls.filter((u): u is string => u !== null) };
+}
+
+/** Feed/search cards only need the first image, but still show a real count. */
+async function withPreviewUrl(ctx: QueryCtx, l: Doc<'listings'>) {
+  const first = l.photos?.[0] ? await ctx.storage.getUrl(l.photos[0]) : null;
+  let sellerTrust = null;
+  if (l.ownerId) {
+    const seller = await ctx.db.get(l.ownerId);
+    if (seller) {
+      const reports = await ctx.db
+        .query('reports')
+        .withIndex('by_seller', (q) => q.eq('sellerId', l.ownerId))
+        .collect();
+      const ratingCount = seller.ratingCount ?? 0;
+      const rating = ratingCount ? (seller.ratingSum ?? 0) / ratingCount : 0;
+      const now = Date.now();
+      const phoneVerified = !!seller.phone;
+      const telegramLinked = !!seller.telegramId;
+      const activeRecently = !!seller.lastSeen && now - seller.lastSeen < RECENT_MS;
+      const goodReviews = ratingCount > 0 && rating >= 4;
+      const noReports = reports.length === 0;
+      sellerTrust = {
+        phoneVerified,
+        telegramLinked,
+        activeRecently,
+        noReports,
+        goodReviews,
+        verified: phoneVerified && telegramLinked && activeRecently && noReports && goodReviews,
+        isDealer: !!seller.isDealer,
+        rating,
+        ratingCount,
+        reportCount: reports.length,
+      };
+    }
+  }
+  return {
+    ...l,
+    photoUrls: first ? [first] : [],
+    photoCount: l.photos?.length ?? 0,
+    sellerTrust,
+  };
 }
 
 // A manual feed priority point outweighs any algorithm signal, so the admin's
@@ -44,6 +95,109 @@ function feedScore(
     promo * promoWeight +
     recency * recencyWeight
   );
+}
+
+function numberFromText(value?: string) {
+  if (!value) return null;
+  const digits = value.replace(/[^\d]/g, '');
+  return digits ? Number(digits) : null;
+}
+
+function normalized(value?: string) {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function specValue(l: Doc<'listings'>, key: string) {
+  const target = normalized(key);
+  return l.specs.find((s) => normalized(s.label).includes(target))?.value ?? '';
+}
+
+function currencyFromText(value?: string) {
+  const text = normalized(value);
+  if (text.includes('y.e') || text.includes('usd') || text.includes('$')) return 'usd';
+  return 'uzs';
+}
+
+function median(values: number[]) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+function priceBasis({ sameBreed, closeWeight }: { sameBreed: boolean; closeWeight: boolean }) {
+  if (sameBreed && closeWeight) return 'Bir xil zot va vaznga yaqin eʼlonlar bilan solishtirildi';
+  if (sameBreed) return 'Bir xil zotdagi eʼlonlar bilan solishtirildi';
+  if (closeWeight) return 'Vazni yaqin eʼlonlar bilan solishtirildi';
+  return 'Shu kategoriyadagi eʼlonlar bilan solishtirildi';
+}
+
+async function buildPriceIntel(ctx: PriceIntelCtx, l: Doc<'listings'>) {
+  const price = numberFromText(l.price);
+  if (!price || price <= 0) return undefined;
+
+  const currency = currencyFromText(l.price);
+  const breed = normalized(specValue(l, 'zot'));
+  const weight = numberFromText(specValue(l, 'vazn'));
+  const rows = await ctx.db
+    .query('listings')
+    .withIndex('by_status_category', (q) =>
+      q.eq('status', 'active').eq('category', l.category)
+    )
+    .order('desc')
+    .take(PRICE_SAMPLE_LIMIT);
+
+  const candidates = rows
+    .filter((r) => r._id !== l._id && currencyFromText(r.price) === currency)
+    .map((r) => {
+      const otherPrice = numberFromText(r.price);
+      if (!otherPrice || otherPrice <= 0) return null;
+      const otherBreed = normalized(specValue(r, 'zot'));
+      const otherWeight = numberFromText(specValue(r, 'vazn'));
+      const sameBreed = !!breed && !!otherBreed && otherBreed === breed;
+      const closeWeight =
+        !!weight &&
+        !!otherWeight &&
+        Math.abs(otherWeight - weight) <= Math.max(25, weight * 0.25);
+      return { price: otherPrice, sameBreed, closeWeight };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+
+  if (candidates.length < 2) return undefined;
+
+  let cohort = candidates.filter((c) => c.sameBreed && c.closeWeight);
+  if (cohort.length < 2) cohort = candidates.filter((c) => c.sameBreed);
+  if (cohort.length < 2) cohort = candidates.filter((c) => c.closeWeight);
+  if (cohort.length < 2) cohort = candidates;
+
+  const medianPrice = median(cohort.map((c) => c.price));
+  if (!medianPrice) return undefined;
+  const differencePct = Math.round(((price - medianPrice) / medianPrice) * 100);
+  const status: PriceIntelStatus =
+    differencePct <= -15
+      ? 'below_market'
+      : differencePct >= 15
+        ? 'high_price'
+        : 'good_price';
+
+  return {
+    status,
+    medianPrice,
+    sampleSize: cohort.length,
+    differencePct,
+    currency,
+    basis: priceBasis({
+      sameBreed: cohort.some((c) => c.sameBreed),
+      closeWeight: cohort.some((c) => c.closeWeight),
+    }),
+    updatedAt: Date.now(),
+  };
+}
+
+async function priceIntelForDetail(ctx: QueryCtx, l: Doc<'listings'>) {
+  if (l.priceIntel && Date.now() - l.priceIntel.updatedAt < PRICE_INTEL_TTL_MS) {
+    return l.priceIntel;
+  }
+  return await buildPriceIntel(ctx, l);
 }
 
 export const list = query({
@@ -82,11 +236,200 @@ export const listActive = query({
   },
 });
 
+export const listActivePage = query({
+  args: {
+    category: v.optional(v.string()),
+    now: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, { category, now: nowArg, paginationOpts }) => {
+    const pageResult = category
+      ? await ctx.db
+          .query('listings')
+          .withIndex('by_status_category', (q) =>
+            q.eq('status', 'active').eq('category', category)
+          )
+          .order('desc')
+          .paginate(paginationOpts)
+      : await ctx.db
+          .query('listings')
+          .withIndex('by_status', (q) => q.eq('status', 'active'))
+          .order('desc')
+          .paginate(paginationOpts);
+
+    const settings = await ctx.db.query('settings').first();
+    const recencyWeight = settings?.feedRecencyWeight ?? 1;
+    const promoWeight = settings?.feedPromoWeight ?? 1;
+    const now = nowArg ?? Date.now();
+    const rankedPage = pageResult.page
+      .map((l) => ({ l, score: feedScore(l, now, recencyWeight, promoWeight) }))
+      .sort((a, b) => b.score - a.score || b.l.createdAt - a.l.createdAt)
+      .map((x) => x.l);
+
+    return {
+      ...pageResult,
+      page: await Promise.all(rankedPage.map((l) => withPreviewUrl(ctx, l))),
+    };
+  },
+});
+
+export const search = query({
+  args: {
+    q: v.optional(v.string()),
+    category: v.optional(v.string()),
+    city: v.optional(v.string()),
+    breed: v.optional(v.string()),
+    priceMin: v.optional(v.number()),
+    priceMax: v.optional(v.number()),
+    weightMin: v.optional(v.number()),
+    weightMax: v.optional(v.number()),
+    hasPhotos: v.optional(v.boolean()),
+    minRating: v.optional(v.number()),
+    now: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
+    const pageResult = args.category
+      ? await ctx.db
+          .query('listings')
+          .withIndex('by_status_category', (q) =>
+            q.eq('status', 'active').eq('category', args.category!)
+          )
+          .order('desc')
+          .paginate(args.paginationOpts)
+      : await ctx.db
+          .query('listings')
+          .withIndex('by_status', (q) => q.eq('status', 'active'))
+          .order('desc')
+          .paginate(args.paginationOpts);
+    const settings = await ctx.db.query('settings').first();
+    const recencyWeight = settings?.feedRecencyWeight ?? 1;
+    const promoWeight = settings?.feedPromoWeight ?? 1;
+    const now = args.now ?? Date.now();
+
+    const qText = normalized(args.q);
+    const city = normalized(args.city);
+    const breed = normalized(args.breed);
+
+    const hydrated = await Promise.all(
+      pageResult.page.map(async (l) => {
+        let sellerRating = 0;
+        if (l.ownerId) {
+          const seller = await ctx.db.get(l.ownerId);
+          sellerRating = seller?.ratingCount
+            ? (seller.ratingSum ?? 0) / seller.ratingCount
+            : 0;
+        }
+        return { l, sellerRating };
+      })
+    );
+
+    const filtered = hydrated.filter(({ l, sellerRating }) => {
+      if (args.category && l.category !== args.category) return false;
+      if (city && normalized(l.city) !== city) return false;
+      if (args.hasPhotos && !l.photos?.length) return false;
+      if (args.minRating !== undefined && sellerRating < args.minRating) return false;
+
+      const price = numberFromText(l.price);
+      if (args.priceMin !== undefined && (price === null || price < args.priceMin)) return false;
+      if (args.priceMax !== undefined && (price === null || price > args.priceMax)) return false;
+
+      const weight = numberFromText(specValue(l, 'vazn'));
+      if (args.weightMin !== undefined && (weight === null || weight < args.weightMin)) return false;
+      if (args.weightMax !== undefined && (weight === null || weight > args.weightMax)) return false;
+
+      if (breed && !normalized(specValue(l, 'zot')).includes(breed)) return false;
+
+      if (qText) {
+        const haystack = normalized(
+          [
+            l.title,
+            l.desc,
+            l.city,
+            l.price,
+            l.sellerName,
+            ...l.specs.flatMap((s) => [s.label, s.value]),
+          ].join(' ')
+        );
+        if (!haystack.includes(qText)) return false;
+      }
+
+      return true;
+    });
+
+    const ranked = filtered
+      .map(({ l, sellerRating }) => {
+        const haystack = normalized(
+          [l.title, l.desc, l.city, l.price, ...l.specs.map((s) => s.value)].join(' ')
+        );
+        const textBonus = qText && haystack.includes(qText) ? 500 : 0;
+        const categoryBonus = args.category && l.category === args.category ? 250 : 0;
+        const cityBonus = city && normalized(l.city) === city ? 200 : 0;
+        const ratingBonus = sellerRating * 25;
+        return {
+          l,
+          sellerRating,
+          score:
+            feedScore(l, now, recencyWeight, promoWeight) +
+            textBonus +
+            categoryBonus +
+            cityBonus +
+            ratingBonus,
+        };
+      })
+      .sort((a, b) => b.score - a.score || b.l.createdAt - a.l.createdAt);
+
+    return {
+      ...pageResult,
+      page: await Promise.all(
+        ranked.map(async ({ l, sellerRating }) => ({
+          ...(await withPreviewUrl(ctx, l)),
+          sellerRating,
+          boostActive: !!l.boostedUntil && l.boostedUntil > now,
+        }))
+      ),
+    };
+  },
+});
+
 export const get = query({
-  args: { id: v.id('listings') },
-  handler: async (ctx, { id }) => {
+  args: { id: v.id('listings'), now: v.optional(v.number()) },
+  handler: async (ctx, { id, now: nowArg }) => {
     const l = await ctx.db.get(id);
-    return l ? withUrls(ctx, l) : null;
+    if (!l) return null;
+    const seller = l.ownerId ? await ctx.db.get(l.ownerId) : null;
+    const reports = l.ownerId
+      ? await ctx.db
+          .query('reports')
+          .withIndex('by_seller', (q) => q.eq('sellerId', l.ownerId))
+          .collect()
+      : [];
+    const ratingCount = seller?.ratingCount ?? 0;
+    const rating = ratingCount ? (seller?.ratingSum ?? 0) / ratingCount : 0;
+    const now = nowArg ?? Date.now();
+    const phoneVerified = !!seller?.phone;
+    const telegramLinked = !!seller?.telegramId;
+    const activeRecently = !!seller?.lastSeen && now - seller.lastSeen < 24 * 60 * 60 * 1000;
+    const goodReviews = ratingCount > 0 && rating >= 4;
+    const noReports = reports.length === 0;
+    const sellerTrust = seller
+      ? {
+          phoneVerified,
+          telegramLinked,
+          activeRecently,
+          noReports,
+          goodReviews,
+          verified: phoneVerified && telegramLinked && activeRecently && noReports && goodReviews,
+          isDealer: !!seller.isDealer,
+          reportCount: reports.length,
+          rating,
+          ratingCount,
+          soldCount: seller.soldCount ?? 0,
+          lastSeen: seller.lastSeen,
+          online: !!seller.lastSeen && now - seller.lastSeen < ONLINE_MS,
+        }
+      : null;
+    return { ...(await withUrls(ctx, l)), sellerTrust, priceIntel: await priceIntelForDetail(ctx, l) };
   },
 });
 
@@ -124,13 +467,46 @@ export const create = mutation({
     // Admin control: auto-approve setting decides pending vs active.
     const settings = await ctx.db.query('settings').first();
     const status = settings?.autoApprove ? 'active' : 'pending';
-    return await ctx.db.insert('listings', { ...args, status, createdAt: Date.now() });
+    const id = await ctx.db.insert('listings', { ...args, status, createdAt: Date.now() });
+    const listing = await ctx.db.get(id);
+    if (listing) {
+      const priceIntel = await buildPriceIntel(ctx, listing);
+      if (priceIntel) await ctx.db.patch(id, { priceIntel });
+    }
+    return id;
+  },
+});
+
+export const refreshPriceIntel = mutation({
+  args: { id: v.id('listings') },
+  handler: async (ctx, { id }) => {
+    const listing = await ctx.db.get(id);
+    if (!listing) return null;
+    const priceIntel = await buildPriceIntel(ctx, listing);
+    await ctx.db.patch(id, { priceIntel });
+    return priceIntel ?? null;
   },
 });
 
 export const setStatus = mutation({
   args: { id: v.id('listings'), status: listingStatus },
-  handler: (ctx, { id, status }) => ctx.db.patch(id, { status }),
+  handler: async (ctx, { id, status }) => {
+    const l = await ctx.db.get(id);
+    if (!l) return;
+    await ctx.db.patch(id, { status });
+    // Tell the owner when a moderation decision lands on their listing.
+    if (l.ownerId && l.status !== status && (status === 'active' || status === 'rejected')) {
+      const approved = status === 'active';
+      await ctx.scheduler.runAfter(0, internal.push.send, {
+        userId: l.ownerId,
+        title: approved ? 'Eʼlon tasdiqlandi ✅' : 'Eʼlon rad etildi',
+        body: approved
+          ? `"${l.title}" endi bozorda koʼrinadi.`
+          : `"${l.title}" eʼloningiz tasdiqlanmadi.`,
+        data: { type: 'listing', listingId: id },
+      });
+    }
+  },
 });
 
 /** Count one detail-screen open. Best-effort — never blocks the screen. */
@@ -171,18 +547,95 @@ export const related = query({
     if (!base) return [];
     const sameCat = await ctx.db
       .query('listings')
-      .withIndex('by_category', (q) => q.eq('category', base.category))
-      .collect();
-    let pool = sameCat.filter((l) => l._id !== id && l.status === 'active');
+      .withIndex('by_status_category', (q) =>
+        q.eq('status', 'active').eq('category', base.category)
+      )
+      .order('desc')
+      .take(RELATED_SCAN_LIMIT);
+    let pool = sameCat.filter((l) => l._id !== id);
     if (pool.length === 0) {
       const active = await ctx.db
         .query('listings')
         .withIndex('by_status', (q) => q.eq('status', 'active'))
-        .collect();
+        .order('desc')
+        .take(RELATED_SCAN_LIMIT);
       pool = active.filter((l) => l._id !== id);
     }
     const ranked = pool.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit ?? 6);
-    return Promise.all(ranked.map((l) => withUrls(ctx, l)));
+    return Promise.all(ranked.map((l) => withPreviewUrl(ctx, l)));
+  },
+});
+
+export const recommendations = query({
+  args: {
+    recentIds: v.optional(v.array(v.id('listings'))),
+    savedIds: v.optional(v.array(v.id('listings'))),
+    limit: v.optional(v.number()),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, { recentIds = [], savedIds = [], limit, now: nowArg }) => {
+    const seen = new Set<string>();
+    const signalIds = [...recentIds, ...savedIds].filter((id) => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
+    if (signalIds.length === 0) return [];
+
+    const signalRows = await Promise.all(signalIds.slice(0, 20).map((id) => ctx.db.get(id)));
+    const signals = signalRows.filter((l): l is NonNullable<typeof l> => l !== null);
+    if (signals.length === 0) return [];
+
+    const categoryScores = new Map<string, number>();
+    const cityScores = new Map<string, number>();
+    const bump = (map: Map<string, number>, key: string, amount: number) => {
+      map.set(key, (map.get(key) ?? 0) + amount);
+    };
+
+    recentIds.forEach((id, i) => {
+      const l = signals.find((s) => s._id === id);
+      if (!l) return;
+      const weight = Math.max(1, 6 - i);
+      bump(categoryScores, l.category, weight * 2);
+      bump(cityScores, l.city, weight);
+    });
+
+    savedIds.forEach((id) => {
+      const l = signals.find((s) => s._id === id);
+      if (!l) return;
+      bump(categoryScores, l.category, 5);
+      bump(cityScores, l.city, 3);
+    });
+
+    const rows = await ctx.db
+      .query('listings')
+      .withIndex('by_status', (q) => q.eq('status', 'active'))
+      .order('desc')
+      .take(RECOMMENDATION_SCAN_LIMIT);
+    const exclude = new Set(signalIds);
+    const now = nowArg ?? Date.now();
+    const take = Math.max(1, Math.min(limit ?? 8, 16));
+
+    const ranked = rows
+      .filter((l) => !exclude.has(l._id))
+      .map((l) => {
+        const ageDays = (now - l.createdAt) / DAY_MS;
+        const recency = Math.max(0, 14 - ageDays) / 14;
+        const promo = l.boostedUntil && l.boostedUntil > now ? 1 : 0;
+        const score =
+          (categoryScores.get(l.category) ?? 0) +
+          (cityScores.get(l.city) ?? 0) +
+          recency +
+          promo;
+        return { l, score };
+      })
+      .filter(({ score }) => score > 0)
+      .sort((a, b) => b.score - a.score || b.l.createdAt - a.l.createdAt)
+      .slice(0, take)
+      .map(({ l }) => l);
+
+    return Promise.all(ranked.map((l) => withPreviewUrl(ctx, l)));
   },
 });
 

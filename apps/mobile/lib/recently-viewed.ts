@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
@@ -29,11 +30,13 @@ async function writeIds(ids: string[]) {
   }
 }
 
-/** Record a listing as just-viewed (most-recent-first, de-duplicated). */
-export async function recordViewed(id: string): Promise<void> {
+/** Record a listing as just-viewed. Returns true when this is a fresh local view. */
+export async function recordViewed(id: string): Promise<boolean> {
   const ids = await readIds();
+  const fresh = !ids.includes(id);
   const next = [id, ...ids.filter((x) => x !== id)].slice(0, MAX);
   await writeIds(next);
+  return fresh;
 }
 
 /** Reactive list of recently viewed ids. `exclude` drops the current listing. */
@@ -45,5 +48,6 @@ export function useRecentlyViewed(exclude?: string): string[] {
   useEffect(() => {
     refresh();
   }, [refresh]);
+  useFocusEffect(refresh);
   return ids;
 }

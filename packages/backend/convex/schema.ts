@@ -38,6 +38,9 @@ export default defineSchema({
     emoji: v.string(),
     order: v.number(),
     active: v.boolean(),
+    // Admin-editable breed/type list for this category. When unset, the app
+    // falls back to the built-in defaults (see categories.ts DEFAULT_BREEDS).
+    breeds: v.optional(v.array(v.string())),
   }).index('by_slug', ['slug']),
 
   listings: defineTable({
@@ -62,9 +65,25 @@ export default defineSchema({
     // Manual admin feed priority. Higher = pushed further up. Set from the
     // admin Feed page (drag-to-reorder writes this too). 0/undefined = algorithm only.
     feedBoost: v.optional(v.number()),
+    priceIntel: v.optional(
+      v.object({
+        status: v.union(
+          v.literal('below_market'),
+          v.literal('good_price'),
+          v.literal('high_price')
+        ),
+        medianPrice: v.number(),
+        sampleSize: v.number(),
+        differencePct: v.number(),
+        currency: v.string(),
+        basis: v.string(),
+        updatedAt: v.number(),
+      })
+    ),
   })
     .index('by_category', ['category'])
     .index('by_status', ['status'])
+    .index('by_status_category', ['status', 'category'])
     .index('by_owner', ['ownerId']),
 
   ads: defineTable({
@@ -85,9 +104,28 @@ export default defineSchema({
     end: v.string(),
   }).index('by_status', ['status']),
 
+  // Official dealer video showcases ("Rasmiy dilerlar"), managed from the admin
+  // panel. Each row is one video card shown in a horizontal row on the app home.
+  dealers: defineTable({
+    title: v.string(), // e.g. "Changan CS55 Plus"
+    dealer: v.optional(v.string()), // dealer / brand name
+    // The real user this dealer showcase belongs to. When set, the app can open
+    // the seller's profile and the card shows their name/avatar. Promoting a
+    // `foydalanuvchi` to a dealer = creating a row with their userId.
+    userId: v.optional(v.id('users')),
+    videoId: v.id('_storage'), // uploaded video file
+    thumbId: v.optional(v.id('_storage')), // poster image (optional)
+    order: v.number(),
+    active: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index('by_active', ['active'])
+    .index('by_user', ['userId']),
+
   users: defineTable({
     name: v.string(),
     phone: v.string(),
+    telegramId: v.optional(v.string()),
     listings: v.number(),
     joined: v.string(),
     status: userStatus,
@@ -103,7 +141,12 @@ export default defineSchema({
     lastSeen: v.optional(v.number()),
     // Wallet balance in UZS (soʻm), topped up via inPAY.
     balance: v.optional(v.number()),
-  }).index('by_phone', ['phone']),
+    // Marked as an official dealer from the admin panel. Only dealers can have
+    // showcase videos attached (see dealers table / dilerlar admin page).
+    isDealer: v.optional(v.boolean()),
+  })
+    .index('by_phone', ['phone'])
+    .index('by_telegram', ['telegramId']),
 
   // Buyer reviews of a seller (1–5 stars + optional text). One row per review.
   reviews: defineTable({
@@ -173,6 +216,7 @@ export default defineSchema({
     listingId: v.id('listings'),
   })
     .index('by_user', ['userId'])
+    .index('by_listing', ['listingId'])
     .index('by_user_listing', ['userId', 'listingId']),
 
   // Single-row platform configuration, controlled from the admin Sozlamalar page.
@@ -199,6 +243,16 @@ export default defineSchema({
     createdAt: v.number(),
   }),
 
+  // Expo push tokens, one row per device. A user can be signed in on several
+  // devices, so we key by the token (unique) and index by user for fan-out.
+  pushTokens: defineTable({
+    userId: v.id('users'),
+    token: v.string(), // ExponentPushToken[...]
+    updatedAt: v.number(),
+  })
+    .index('by_token', ['token'])
+    .index('by_user', ['userId']),
+
   // Short-lived login handshakes. The app creates a pending row keyed by a random
   // token, opens the Telegram bot with that token, and the bot marks it verified
   // (attaching the user) once the person shares their contact. The app polls by token.
@@ -210,12 +264,15 @@ export default defineSchema({
   }).index('by_token', ['token']),
 
   reports: defineTable({
+    sellerId: v.optional(v.id('users')),
     listingTitle: v.string(),
     reason: v.string(),
     reporter: v.string(),
     date: v.string(),
     status: reportStatus,
-  }).index('by_status', ['status']),
+  })
+    .index('by_status', ['status'])
+    .index('by_seller', ['sellerId']),
 
   payments: defineTable({
     user: v.string(),
@@ -225,6 +282,16 @@ export default defineSchema({
     date: v.string(),
     status: paymentStatus,
   }),
+
+  plans: defineTable({
+    title: v.string(),
+    kind: v.union(v.literal('whiteboard'), v.literal('kanban')),
+    data: v.any(),
+    updatedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index('by_kind', ['kind'])
+    .index('by_updated', ['updatedAt']),
 
   // inPAY payment invoices. Created pending when the app requests a top-up,
   // flipped to success/failed when inPAY's webhook is verified server-side.

@@ -13,12 +13,13 @@ import {
   Linking,
   Platform,
   Pressable,
+  ScrollView,
+  StyleSheet,
   TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../components/app-text';
-import { Logo } from '../components/logo';
 import { useAuth } from '../lib/auth';
 
 const BRAND_BLUE = '#0A6CFF';
@@ -79,7 +80,7 @@ export default function Login() {
       await Linking.openURL(`https://t.me/${BOT_USERNAME}?start=${token}`);
     } catch {
       Alert.alert('Xatolik', 'Telegramni ochib boʻlmadi. Qayta urinib koʻring.');
-      setTgToken(null);
+      setTimeout(() => setTgToken(null), 0);
     }
   };
 
@@ -88,7 +89,7 @@ export default function Login() {
     if (tgStatus?.status === 'verified' && tgStatus.userId) {
       adoptSession(tgStatus.userId as Id<'users'>).then(() => router.replace('/home'));
     } else if (tgStatus?.status === 'expired') {
-      setTgToken(null);
+      setTimeout(() => setTgToken(null), 0);
       Alert.alert('Muddati tugadi', 'Telegram orqali kirish muddati tugadi. Qayta urinib koʻring.');
     }
   }, [tgStatus, adoptSession, router]);
@@ -96,96 +97,204 @@ export default function Login() {
   const waitingTelegram = !!tgToken && tgStatus?.status === 'pending';
 
   return (
-    <View className="flex-1 bg-background">
+    <View style={styles.root}>
       <StatusBar style="dark" />
-      <SafeAreaView className="flex-1" edges={['top', 'bottom']}>
-        <KeyboardAvoidingView
-          className="flex-1 px-6"
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          {/* Back */}
-          <View className="h-12 flex-row items-center">
-            <Pressable onPress={() => router.back()} hitSlop={10} className="h-9 w-9 items-center justify-center">
-              <Ionicons name="arrow-back" size={24} color={BRAND_BLUE} />
-            </Pressable>
-          </View>
-
-          <Logo className="mt-2 text-[#0F172A]" />
-
-          <AppText className="mt-8 font-bold text-3xl text-foreground">
-            Kirish
-          </AppText>
-          <AppText className="mt-2 text-base leading-6 text-muted">
-            Telefon raqamingizni kiriting. Uni suhbat va eʼlonlaringiz uchun ishlatamiz.
-          </AppText>
-
-          {/* Name */}
-          <AppText className="mb-2 mt-8 font-medium text-sm text-muted">Ismingiz</AppText>
-          <View className="flex-row items-center rounded-2xl bg-surface-secondary px-4">
-            <Ionicons name="person-outline" size={20} color="#9ca3af" />
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="Ismingiz"
-              placeholderTextColor="#9ca3af"
-              className="ml-3 flex-1 py-4 text-base text-foreground"
-              style={{ fontFamily: 'Inter-Regular' }}
-            />
-          </View>
-
-          {/* Phone */}
-          <AppText className="mb-2 mt-4 font-medium text-sm text-muted">Telefon raqam</AppText>
-          <View className="flex-row items-center rounded-2xl bg-surface-secondary px-4">
-            <AppText className="text-base text-foreground">🇺🇿 +998</AppText>
-            <TextInput
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="90 123 45 67"
-              placeholderTextColor="#9ca3af"
-              keyboardType="phone-pad"
-              className="ml-2 flex-1 py-4 text-base text-foreground"
-              style={{ fontFamily: 'Inter-Regular' }}
-            />
-          </View>
-
-          <View className="flex-1" />
-
-          <Pressable
-            onPress={submit}
-            disabled={!valid || busy}
-            className="h-14 items-center justify-center rounded-2xl active:opacity-90"
-            style={{ backgroundColor: valid ? BRAND_BLUE : '#C7D2DE' }}
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <KeyboardAvoidingView style={styles.safe} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.content}
           >
-            <AppText className="font-semibold text-base text-white">
-              {busy ? 'Kutilmoqda...' : 'Davom etish'}
-            </AppText>
-          </Pressable>
+            <View style={styles.header}>
+              <Pressable onPress={() => router.back()} hitSlop={10} style={styles.backButton}>
+                <Ionicons name="arrow-back" size={24} color={BRAND_BLUE} />
+              </Pressable>
+            </View>
 
-          {/* Divider */}
-          <View className="my-4 flex-row items-center">
-            <View className="h-px flex-1 bg-border" />
-            <AppText className="mx-3 text-sm text-muted">yoki</AppText>
-            <View className="h-px flex-1 bg-border" />
-          </View>
+            <View style={styles.card}>
+              <AppText style={styles.brand}>Halolmi</AppText>
+              <AppText style={styles.title}>Kirish</AppText>
+              <AppText style={styles.subtitle}>
+                Telefon raqamingizni kiriting. Uni suhbat va eʼlonlaringiz uchun ishlatamiz.
+              </AppText>
 
-          {/* Telegram login */}
-          <Pressable
-            onPress={startTelegram}
-            disabled={waitingTelegram}
-            className="mb-4 h-14 flex-row items-center justify-center rounded-2xl active:opacity-90"
-            style={{ backgroundColor: '#229ED9', opacity: waitingTelegram ? 0.7 : 1 }}
-          >
-            {waitingTelegram ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Ionicons name="paper-plane" size={20} color="#fff" />
-            )}
-            <AppText className="ml-2 font-semibold text-base text-white">
-              {waitingTelegram ? 'Telegram tasdiqlanmoqda...' : 'Telegram orqali kirish'}
-            </AppText>
-          </Pressable>
+              <AppText style={styles.label}>Ismingiz</AppText>
+              <View style={styles.inputWrap}>
+                <Ionicons name="person-outline" size={20} color="#9ca3af" />
+                <TextInput
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Ismingiz"
+                  placeholderTextColor="#9ca3af"
+                  style={styles.input}
+                />
+              </View>
+
+              <AppText style={styles.label}>Telefon raqam</AppText>
+              <View style={styles.inputWrap}>
+                <AppText style={styles.prefix}>+998</AppText>
+                <TextInput
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholder="90 123 45 67"
+                  placeholderTextColor="#9ca3af"
+                  keyboardType="phone-pad"
+                  style={styles.input}
+                />
+              </View>
+
+              <Pressable
+                onPress={submit}
+                disabled={!valid || busy}
+                style={[styles.primaryButton, { backgroundColor: valid ? BRAND_BLUE : '#C7D2DE' }]}
+              >
+                <AppText style={styles.buttonText}>
+                  {busy ? 'Kutilmoqda...' : 'Davom etish'}
+                </AppText>
+              </Pressable>
+
+              <View style={styles.divider}>
+                <View style={styles.line} />
+                <AppText style={styles.dividerText}>yoki</AppText>
+                <View style={styles.line} />
+              </View>
+
+              <Pressable
+                onPress={startTelegram}
+                disabled={waitingTelegram}
+                style={[styles.telegramButton, { opacity: waitingTelegram ? 0.7 : 1 }]}
+              >
+                {waitingTelegram ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Ionicons name="paper-plane" size={20} color="#fff" />
+                )}
+                <AppText style={styles.telegramText}>
+                  {waitingTelegram ? 'Telegram tasdiqlanmoqda...' : 'Telegram orqali kirish'}
+                </AppText>
+              </Pressable>
+            </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#F4F5F7',
+  },
+  safe: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+  },
+  header: {
+    height: 52,
+    justifyContent: 'center',
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  card: {
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+  },
+  brand: {
+    fontFamily: 'Fredoka-SemiBold',
+    fontSize: 24,
+    color: '#0F172A',
+  },
+  title: {
+    marginTop: 22,
+    fontFamily: 'Inter-Bold',
+    fontSize: 30,
+    color: '#0F172A',
+  },
+  subtitle: {
+    marginTop: 8,
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#6B7280',
+  },
+  label: {
+    marginTop: 22,
+    marginBottom: 8,
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  inputWrap: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    backgroundColor: '#F1F3F5',
+    paddingHorizontal: 16,
+  },
+  prefix: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 16,
+    color: '#0F172A',
+  },
+  input: {
+    flex: 1,
+    marginLeft: 10,
+    paddingVertical: 14,
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: '#0F172A',
+  },
+  primaryButton: {
+    height: 56,
+    marginTop: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+  },
+  buttonText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  divider: {
+    marginVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  line: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  telegramButton: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: '#229ED9',
+  },
+  telegramText: {
+    marginLeft: 8,
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+});

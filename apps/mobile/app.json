@@ -7,6 +7,10 @@
     "icon": "./assets/images/icon.png",
     "scheme": "halolmia",
     "userInterfaceStyle": "automatic",
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -22,6 +26,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
@@ -29,7 +34,8 @@
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.BLUETOOTH_ADMIN",
-        "android.permission.WAKE_LOCK"
+        "android.permission.WAKE_LOCK",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.behzodosteam.halomi"
     },
@@ -45,9 +51,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#0A6CFF",
           "dark": {
-            "backgroundColor": "#0B3D2E"
+            "backgroundColor": "#0A6CFF"
           }
         }
       ],
@@ -55,6 +61,13 @@
       "expo-image",
       "expo-web-browser",
       "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#0B3D2E"
+        }
+      ],
       "@stream-io/video-react-native-sdk",
       [
         "expo-build-properties",
@@ -63,7 +76,8 @@
             "minSdkVersion": 24
           }
         }
-      ]
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

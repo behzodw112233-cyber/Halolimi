@@ -88,18 +88,18 @@ export default function Saved() {
           </ScrollView>
         ) : (
           /* Empty state */
-          <View className="flex-1 items-center justify-center px-10">
+          <View className="flex-1 items-center px-8 pt-16">
             <Image
               source={require('../../assets/illustrations/saved-empty.png')}
               contentFit="contain"
-              style={{ width: 300, height: 210, marginBottom: 20 }}
+              style={{ width: 260, height: 170, marginBottom: 24 }}
             />
-            <AppText className="mb-2 text-center font-bold text-lg text-foreground">
+            <AppText className="mb-3 text-center font-bold text-2xl text-foreground">
               {tab === 'listings'
                 ? 'Qiziqarli hayvonlarni saqlang'
                 : 'Qidiruvlarni saqlang'}
             </AppText>
-            <AppText className="mb-8 text-center text-base leading-6 text-muted">
+            <AppText className="mb-10 text-center text-lg leading-7 text-muted">
               {tab === 'listings'
                 ? 'Eʼlonga ♡ bosing va oʻzingizga saqlang'
                 : 'Qidiruv natijalarini saqlab, tez toping'}

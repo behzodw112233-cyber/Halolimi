@@ -4,8 +4,8 @@ import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Button, Card, Chip } from '@heroui/react';
 import { useMutation, useQuery } from 'convex/react';
-import { Trash2, Upload, Video } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { MapPin, Trash2, Upload, Video } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { PageHeader } from '@/components/page-header';
 
 export default function DilerlarPage() {
@@ -15,17 +15,35 @@ export default function DilerlarPage() {
   const dealerUsers = (useQuery(api.users.list) ?? []).filter((u) => u.isDealer);
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const createDealer = useMutation(api.dealers.create);
+  const updateDealerProfile = useMutation(api.users.updateDealerProfile);
   const removeDealer = useMutation(api.dealers.remove);
   const setActive = useMutation(api.dealers.setActive);
 
   const [userId, setUserId] = useState('');
   const [title, setTitle] = useState('');
   const [dealer, setDealer] = useState('');
+  const [address, setAddress] = useState('');
+  const [hours, setHours] = useState('');
+  const [mapUrl, setMapUrl] = useState('');
   const [video, setVideo] = useState<File | null>(null);
   const [thumb, setThumb] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const videoInput = useRef<HTMLInputElement>(null);
   const thumbInput = useRef<HTMLInputElement>(null);
+  const selectedDealer = dealerUsers.find((u) => u._id === userId);
+
+  useEffect(() => {
+    if (!selectedDealer) {
+      setAddress('');
+      setHours('');
+      setMapUrl('');
+      return;
+    }
+    setDealer(selectedDealer.name);
+    setAddress(selectedDealer.dealerAddress ?? '');
+    setHours(selectedDealer.dealerHours ?? '');
+    setMapUrl(selectedDealer.dealerMapUrl ?? '');
+  }, [selectedDealer]);
 
   const upload = async (file: File): Promise<Id<'_storage'>> => {
     const url = await generateUploadUrl();
@@ -40,6 +58,12 @@ export default function DilerlarPage() {
     try {
       const videoId = await upload(video);
       const thumbId = thumb ? await upload(thumb) : undefined;
+      await updateDealerProfile({
+        id: userId as Id<'users'>,
+        dealerAddress: address.trim(),
+        dealerHours: hours.trim(),
+        dealerMapUrl: mapUrl.trim(),
+      });
       await createDealer({
         title: title.trim(),
         dealer: dealer.trim() || undefined,
@@ -50,6 +74,9 @@ export default function DilerlarPage() {
       setUserId('');
       setTitle('');
       setDealer('');
+      setAddress('');
+      setHours('');
+      setMapUrl('');
       setVideo(null);
       setThumb(null);
       if (videoInput.current) videoInput.current.value = '';
@@ -109,6 +136,33 @@ export default function DilerlarPage() {
               />
             </div>
             <div>
+              <label className="mb-1 block text-sm text-neutral-500">Manzil</label>
+              <input
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Masalan: Toshkent, Chilonzor 12-mavze"
+                className="h-10 w-full rounded-lg border border-neutral-200 px-3 text-sm outline-none focus:border-neutral-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-neutral-500">Ish vaqti</label>
+              <input
+                value={hours}
+                onChange={(e) => setHours(e.target.value)}
+                placeholder="Masalan: Dush-Shan, 09:00-19:00"
+                className="h-10 w-full rounded-lg border border-neutral-200 px-3 text-sm outline-none focus:border-neutral-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm text-neutral-500">Xarita havolasi</label>
+              <input
+                value={mapUrl}
+                onChange={(e) => setMapUrl(e.target.value)}
+                placeholder="Google Maps yoki Yandex Maps link"
+                className="h-10 w-full rounded-lg border border-neutral-200 px-3 text-sm outline-none focus:border-neutral-400"
+              />
+            </div>
+            <div>
               <label className="mb-1 block text-sm text-neutral-500">Video fayl *</label>
               <input
                 ref={videoInput}
@@ -130,6 +184,10 @@ export default function DilerlarPage() {
             </div>
           </div>
           <div className="mt-4">
+            <div className="mb-3 flex items-center gap-2 rounded-xl bg-blue-50 px-3 py-2 text-sm text-blue-700">
+              <MapPin size={16} />
+              Bu maÊ¼lumotlar mobil ilovada diler profilining maxsus blokida koÊ»rinadi.
+            </div>
             <Button variant="primary" className="gap-2" isDisabled={!userId || !title.trim() || !video || busy} onPress={submit}>
               <Upload size={16} />
               {busy ? 'Yuklanmoqda…' : 'Qoʻshish'}

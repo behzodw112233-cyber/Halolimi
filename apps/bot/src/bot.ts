@@ -145,13 +145,24 @@ export function createBot(token: string) {
   // ---------- start / language ----------
   bot.command('start', async (ctx) => {
     // Deep-link login: the app opened us with `?start=<handshake token>`.
+    // `?start=verify` is for already-logged-in users who want the verified badge.
     const payload = ctx.match?.toString().trim();
+    if (payload === 'verify' || payload === 'link') {
+      await ctx.reply(
+        '✅ <b>Sotuvchini tasdiqlash</b>\n\n' +
+          'Telegram va telefon raqamingizni bogʻlang — eʼlonlaringizda ' +
+          '«Tasdiqlangan sotuvchi» belgisi chiqadi.\n\n' +
+          'Oʻzingizning raqamingizni ulashing 👇',
+        { parse_mode: 'HTML', reply_markup: phoneRequestKeyboard() }
+      );
+      return;
+    }
     if (payload) {
       ctx.session.authToken = payload;
       await ctx.reply(
         '🔐 <b>Halolmi ilovasiga kirish</b>\n\n' +
-          'Tasdiqlash uchun telefon raqamingizni ulashing 👇\n' +
-          '<i>Raqamingiz faqat hisobingizni yaratish uchun ishlatiladi.</i>',
+          'Tasdiqlash uchun o‘zingizning telefon raqamingizni ulashing 👇\n' +
+          '<i>Telegram raqamingiz tasdiqlangan sotuvchi belgisini beradi.</i>',
         { parse_mode: 'HTML', reply_markup: phoneRequestKeyboard() }
       );
       return;
@@ -404,6 +415,17 @@ export function createBot(token: string) {
   }
 
   bot.on('message:contact', async (ctx) => {
+    // Only accept the user's own Telegram contact — not someone else's shared card.
+    const contact = ctx.message.contact;
+    if (!ctx.from?.id || contact.user_id !== ctx.from.id) {
+      await ctx.reply(
+        '⚠️ Faqat o‘zingizning Telegram raqamingizni yuboring.\n' +
+          'Pastdagi «📱 Raqamni yuborish» tugmasidan foydalaning.',
+        { reply_markup: phoneRequestKeyboard() }
+      );
+      return;
+    }
+
     // App-login handshake takes priority over the sell wizard.
     if (ctx.session.authToken) {
       const token = ctx.session.authToken;
@@ -411,12 +433,14 @@ export function createBot(token: string) {
       try {
         await convex.mutation(api.authTelegram.verify, {
           token,
-          phone: ctx.message.contact.phone_number,
+          phone: contact.phone_number,
           name: ctx.from?.first_name,
           telegramId: telegramId(ctx) ?? undefined,
         });
         await ctx.reply(
-          '✅ <b>Tayyor!</b>\n\nHalolmi ilovasiga qayting — siz avtomatik tarzda tizimga kirdingiz.',
+          '✅ <b>Tayyor!</b>\n\n' +
+            'Halolmi ilovasiga qayting — tizimga kirdingiz.\n' +
+            'Siz endi <b>tasdiqlangan sotuvchi</b>siz 🛡️',
           { parse_mode: 'HTML', reply_markup: { remove_keyboard: true } }
         );
         await ctx.reply('🏠 Asosiy menyu', { reply_markup: mainMenuKeyboard() });
@@ -432,20 +456,25 @@ export function createBot(token: string) {
     if (tgId) {
       const userId = await convex.mutation(api.authTelegram.linkBot, {
         telegramId: tgId,
-        phone: ctx.message.contact.phone_number,
+        phone: contact.phone_number,
         name: ctx.from?.first_name,
       });
       const action = ctx.session.pendingAction;
       ctx.session.pendingAction = undefined;
       const draft = ctx.session.sell;
 
-      await ctx.reply('✅ Hisob ulandi. Endi bot va ilova bir xil maʼlumotdan foydalanadi.', {
-        parse_mode: 'HTML',
-        reply_markup: { remove_keyboard: true },
-      });
+      await ctx.reply(
+        '✅ Hisob ulandi.\n\n' +
+          'Telegram + telefon mos keldi — siz <b>tasdiqlangan sotuvchi</b>siz 🛡️\n' +
+          'Eʼlonlaringizda belgi koʻrinadi.',
+        {
+          parse_mode: 'HTML',
+          reply_markup: { remove_keyboard: true },
+        }
+      );
 
       if (!action && draft?.step === 'phone') {
-        draft.phone = ctx.message.contact.phone_number;
+        draft.phone = contact.phone_number;
         await finishSell(ctx);
       } else if (action === 'save') {
         await toggleCurrentSaved(ctx, userId);
@@ -455,7 +484,11 @@ export function createBot(token: string) {
         const profile = await convex.query(api.authTelegram.botProfile, { telegramId: tgId });
         await ctx.reply(
           profile
-            ? `👤 <b>Kabinet</b>\n\nSalom, ${profile.name}!\n\n❤️ Saqlangan: ${profile.savedCount} ta\n📋 Eʼlonlaringiz: ${profile.listingCount} ta\n💰 Hisob: ${(profile.balance ?? 0).toLocaleString('ru-RU')} soʻm`
+            ? `👤 <b>Kabinet</b>\n\nSalom, ${profile.name}!\n\n` +
+                `${profile.verified ? '🛡️ Tasdiqlangan sotuvchi\n' : ''}` +
+                `❤️ Saqlangan: ${profile.savedCount} ta\n` +
+                `📋 Eʼlonlaringiz: ${profile.listingCount} ta\n` +
+                `💰 Hisob: ${(profile.balance ?? 0).toLocaleString('ru-RU')} soʻm`
             : 'Kabinetni ochib boʻlmadi.',
           { parse_mode: 'HTML', reply_markup: mainMenuKeyboard() }
         );
@@ -471,7 +504,7 @@ export function createBot(token: string) {
 
     const draft = ctx.session.sell;
     if (draft?.step === 'phone') {
-      draft.phone = ctx.message.contact.phone_number;
+      draft.phone = contact.phone_number;
       await finishSell(ctx);
     }
   });

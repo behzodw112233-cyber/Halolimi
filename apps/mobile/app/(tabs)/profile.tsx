@@ -1,19 +1,37 @@
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '@halolmia/backend/convex/_generated/api';
 import { useAction, useQuery } from 'convex/react';
+import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import { Chip } from 'heroui-native';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { Logo } from '../../components/logo';
+import { VerifiedSellerBadge } from '../../components/trust-safety';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
+import { browserCheckoutUrl } from '../../lib/checkout-url';
 
-const METHOD_MAP: Record<string, string> = { click: 'click', payme: 'payme', uzcard: 'inPAY' };
+// Set EXPO_PUBLIC_BOT_USERNAME (without @) so Telegram verify deep link works.
+const BOT_USERNAME = process.env.EXPO_PUBLIC_BOT_USERNAME ?? '';
+
+const METHOD_MAP: Record<string, string> = { click: 'click', payme: 'payme', uzcard: 'atmos' };
 
 const PAYMENTS = [
   { id: 'uzcard', label: 'Uzcard/Humo', color: '#1E3A8A' },
@@ -30,6 +48,15 @@ const STATUS_META: Record<string, { label: string; bg: string }> = {
   rejected: { label: 'Rad etilgan', bg: '#FCA5A5' },
 };
 
+function GlassStat({ label, value }: { label: string; value: number }) {
+  return (
+    <View className="min-w-16 rounded-2xl border border-white/70 bg-white/45 px-2.5 py-2">
+      <AppText className="text-center font-display text-xl text-[#0F172A]">{value}</AppText>
+      <AppText className="text-center text-[11px] font-semibold text-[#64748B]">{label}</AppText>
+    </View>
+  );
+}
+
 export default function Profile() {
   const router = useRouter();
   const { userId, user, logout } = useAuth();
@@ -38,6 +65,10 @@ export default function Profile() {
     api.listings.byOwner,
     userId ? { ownerId: userId } : 'skip'
   );
+  const reels = useQuery(
+    api.reels.bySeller,
+    userId ? { sellerId: userId, userId, limit: 8 } : 'skip'
+  ) ?? [];
   const settings = useQuery(api.settings.get);
 
   // --- inPAY wallet top-up ---
@@ -78,7 +109,7 @@ export default function Profile() {
       setOrderId(oid);
       setTopupOpen(false);
       setAmount('');
-      await WebBrowser.openBrowserAsync(payUrl);
+      await WebBrowser.openBrowserAsync(browserCheckoutUrl(payUrl));
     } catch (e) {
       Alert.alert('Xatolik', e instanceof Error ? e.message : 'Toʻlovni yaratib boʻlmadi.');
     } finally {
@@ -123,49 +154,208 @@ export default function Profile() {
     );
   }
 
+  const activeListings = listings?.filter((l) => l.status === 'active').length ?? 0;
+  const pendingListings = listings?.filter((l) => l.status === 'pending').length ?? 0;
+  const displayName = user?.name ?? 'behzod';
+  const phone = user?.phone ?? user?.name ?? 'Profil';
+  // Verified = Telegram account + Telegram-confirmed phone (see authTelegram.markTelegramVerified).
+  const isVerified = !!(user?.verifiedAt || user?.telegramId);
+
+  const openTelegramVerify = async () => {
+    if (!BOT_USERNAME) {
+      Alert.alert('Sozlanmagan', 'Telegram bot hali ulanmagan.');
+      return;
+    }
+    try {
+      await Linking.openURL(`https://t.me/${BOT_USERNAME}?start=verify`);
+    } catch {
+      Alert.alert('Xatolik', 'Telegramni ochib boʻlmadi. Qayta urinib koʻring.');
+    }
+  };
+
   return (
-    <View className="flex-1" style={{ backgroundColor: '#F4F5F7' }}>
+    <View className="flex-1" style={{ backgroundColor: '#EEF4FA' }}>
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(10,108,255,0.22)', 'rgba(255,255,255,0)', 'rgba(15,23,42,0.08)']}
+        locations={[0, 0.48, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View className="absolute -right-24 -top-20 h-72 w-72 rounded-full bg-white/70" />
+      <View className="absolute -left-20 top-40 h-52 w-52 rounded-full" style={{ backgroundColor: BRAND_BLUE + '18' }} />
       <SafeAreaView className="flex-1" edges={['top']}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
           {/* Header */}
-          <View className="flex-row items-center justify-between px-4 pb-2 pt-2">
-            <AppText className="font-bold text-2xl text-foreground">
-              {user?.phone ?? user?.name ?? 'Profil'}
+          <View className="flex-row items-center justify-between px-4 pb-3 pt-2">
+            <AppText className="font-display text-3xl text-[#0F172A]" numberOfLines={1}>
+              {phone}
             </AppText>
-            <Pressable onPress={() => router.push('/settings')} hitSlop={8} className="flex-row items-center active:opacity-70">
+            <Pressable
+              onPress={() => router.push('/settings')}
+              hitSlop={8}
+              className="h-10 flex-row items-center rounded-full border border-white/70 bg-white/60 px-3 active:opacity-70"
+            >
               <Ionicons name="settings-outline" size={20} color={BRAND_BLUE} />
               <AppText className="ml-1.5 font-medium text-base" style={{ color: BRAND_BLUE }}>Sozlamalar</AppText>
             </Pressable>
           </View>
 
           {/* Balance card */}
-          <View className="mx-4 mt-3 rounded-2xl bg-surface p-4">
+          <View
+            className="mx-4 mt-2 overflow-hidden rounded-[30px] border border-white/70 p-4"
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.62)',
+              shadowColor: '#0F172A',
+              shadowOpacity: 0.12,
+              shadowRadius: 24,
+              shadowOffset: { width: 0, height: 14 },
+              elevation: 8,
+            }}
+          >
+            <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+            <LinearGradient
+              pointerEvents="none"
+              colors={['rgba(255,255,255,0.92)', 'rgba(255,255,255,0.20)', 'transparent']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <View className="absolute -right-12 -top-10 h-32 w-32 rounded-full" style={{ backgroundColor: BRAND_BLUE + '18' }} />
             <View className="flex-row items-center justify-between">
               <View>
-                <AppText className="font-semibold text-lg text-foreground">Halolmi hisobi</AppText>
-                <AppText className="mt-1 text-base text-muted">💰 {fmtSom(user?.balance ?? 0)}</AppText>
+                <AppText className="text-xs font-semibold uppercase tracking-[1.4px] text-[#64748B]">Kabinet</AppText>
+                <AppText className="mt-1 font-bold text-lg text-[#0F172A]">Halolmi hisobi</AppText>
+                <AppText className="mt-1 font-display text-4xl text-[#0F172A]">{fmtSom(user?.balance ?? 0)}</AppText>
                 {orderId ? (
                   <AppText className="mt-0.5 text-xs" style={{ color: BRAND_BLUE }}>Toʻlov kutilmoqda...</AppText>
                 ) : null}
               </View>
               <Pressable
                 onPress={() => setTopupOpen(true)}
-                className="items-center justify-center rounded-xl px-5 py-3 active:opacity-80"
-                style={{ backgroundColor: BRAND_BLUE + '1A' }}
+                className="h-12 flex-row items-center justify-center rounded-2xl px-4 active:opacity-80"
+                style={{ backgroundColor: BRAND_BLUE }}
               >
-                <AppText className="font-semibold text-base" style={{ color: BRAND_BLUE }}>Toʻldirish</AppText>
+                <Ionicons name="add" size={18} color="#fff" />
+                <AppText className="ml-1 font-bold text-base text-white">To'ldirish</AppText>
               </Pressable>
             </View>
-            <View className="my-3 h-px bg-border" />
+            <View className="my-4 h-px bg-white/70" />
             <View className="flex-row items-center">
-              <View className="mr-3 h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE }}>
-                <AppText className="text-white" style={{ fontFamily: 'Fredoka-SemiBold', fontSize: 16 }}>
-                  {(user?.name ?? 'H').charAt(0).toUpperCase()}
+              <View className="mr-3 h-11 w-11 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE }}>
+                <AppText className="text-white" style={{ fontFamily: 'Fredoka-SemiBold', fontSize: 18 }}>
+                  {displayName.charAt(0).toUpperCase()}
                 </AppText>
               </View>
-              <AppText className="flex-1 font-medium text-base text-foreground">{user?.name ?? 'Foydalanuvchi'}</AppText>
+              <View className="flex-1">
+                <AppText className="font-bold text-base text-[#0F172A]">{displayName}</AppText>
+                <AppText className="mt-0.5 text-sm text-[#64748B]">Sotuvchi kabineti</AppText>
+                {isVerified ? (
+                  <View className="mt-1.5 self-start">
+                    <VerifiedSellerBadge compact />
+                  </View>
+                ) : null}
+              </View>
+              <View className="flex-row gap-2">
+                <GlassStat label="Faol" value={activeListings} />
+                <GlassStat label="Kutmoqda" value={pendingListings} />
+              </View>
             </View>
           </View>
+
+          {/* Verified seller: Telegram + phone match */}
+          <View
+            className="mx-4 mt-3 overflow-hidden rounded-2xl border px-4 py-3.5"
+            style={{
+              backgroundColor: isVerified ? '#EFF6FF' : '#FFFBEB',
+              borderColor: isVerified ? '#BFDBFE' : '#FDE68A',
+            }}
+          >
+            <View className="flex-row items-start">
+              <Ionicons
+                name={isVerified ? 'shield-checkmark' : 'shield-outline'}
+                size={22}
+                color={isVerified ? BRAND_BLUE : '#B45309'}
+              />
+              <View className="ml-2.5 flex-1">
+                <AppText
+                  className="font-semibold text-sm"
+                  style={{ color: isVerified ? '#1E40AF' : '#92400E' }}
+                >
+                  {isVerified ? 'Tasdiqlangan sotuvchi' : 'Hisobni tasdiqlang'}
+                </AppText>
+                <AppText
+                  className="mt-0.5 text-xs leading-5"
+                  style={{ color: isVerified ? '#1E3A8A' : '#92400E' }}
+                >
+                  {isVerified
+                    ? 'Telegram va telefon raqamingiz mos. Xaridorlar eʼlonlaringizda ishonch belgisini koʻradi.'
+                    : 'Telegram orqali telefoningizni ulashing — eʼlonlaringizda «Tasdiqlangan sotuvchi» chiqadi.'}
+                </AppText>
+                {!isVerified ? (
+                  <Pressable
+                    onPress={openTelegramVerify}
+                    className="mt-2.5 h-10 flex-row items-center justify-center self-start rounded-xl px-3.5 active:opacity-85"
+                    style={{ backgroundColor: '#229ED9' }}
+                  >
+                    <Ionicons name="paper-plane" size={16} color="#fff" />
+                    <AppText className="ml-1.5 font-semibold text-sm text-white">
+                      Telegram orqali tasdiqlash
+                    </AppText>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          </View>
+
+          {reels.length > 0 && (
+            <View className="mt-5">
+              <View className="mb-2 flex-row items-center justify-between px-4">
+                <AppText className="font-bold text-lg text-foreground">Mening videolarim</AppText>
+                <Pressable
+                  onPress={() => router.push({ pathname: '/reels', params: { start: reels[0]._id, sellerId: userId } } as never)}
+                  hitSlop={8}
+                  className="flex-row items-center active:opacity-70"
+                >
+                  <AppText className="font-medium text-base" style={{ color: BRAND_BLUE }}>Ko'rish</AppText>
+                  <Ionicons name="chevron-forward" size={18} color={BRAND_BLUE} />
+                </Pressable>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+              >
+                {reels.map((r) => (
+                  <Pressable
+                    key={r._id}
+                    onPress={() => router.push({ pathname: '/reels', params: { start: r._id, sellerId: userId } } as never)}
+                    className="overflow-hidden rounded-2xl bg-black active:opacity-90"
+                    style={{ width: 118, aspectRatio: 0.72 }}
+                  >
+                    {r.thumbUrl ? (
+                      <Image
+                        source={{ uri: r.thumbUrl }}
+                        contentFit="cover"
+                        style={{ position: 'absolute', width: '100%', height: '100%' }}
+                      />
+                    ) : (
+                      <View className="h-full w-full items-center justify-center bg-neutral-900">
+                        <Ionicons name="videocam" size={26} color="#fff" />
+                      </View>
+                    )}
+                    <View className="absolute right-2 top-2 h-7 w-7 items-center justify-center rounded-full bg-black/45">
+                      <Ionicons name="play" size={16} color="#fff" style={{ marginLeft: 2 }} />
+                    </View>
+                    <View className="absolute bottom-0 left-0 right-0 p-2" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
+                      <AppText className="font-semibold text-xs text-white" numberOfLines={2}>
+                        {r.price ?? r.title}
+                      </AppText>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
 
           {/* My listings */}
           <AppText className="mb-2 mt-5 px-4 font-bold text-lg text-foreground">
@@ -197,12 +387,35 @@ export default function Profile() {
                 <Pressable
                   key={l._id}
                   onPress={() => router.push({ pathname: '/listing/[id]', params: { id: l._id } })}
-                  className="mx-4 mb-3 rounded-2xl bg-surface p-4 active:opacity-90"
+                  className="mx-4 mb-3 overflow-hidden rounded-[28px] border border-white/70 p-3 active:opacity-90"
+                  style={{
+                    backgroundColor: 'rgba(255,255,255,0.64)',
+                    shadowColor: '#0F172A',
+                    shadowOpacity: 0.09,
+                    shadowRadius: 18,
+                    shadowOffset: { width: 0, height: 10 },
+                    elevation: 5,
+                  }}
                 >
-                  <AppText className="font-semibold text-base text-foreground">{l.title}</AppText>
-                  <AppText className="mb-3 mt-0.5 font-bold text-xl text-foreground">{l.price}</AppText>
+                  <BlurView intensity={34} tint="light" style={StyleSheet.absoluteFill} />
+                  <LinearGradient
+                    pointerEvents="none"
+                    colors={['rgba(255,255,255,0.82)', 'rgba(255,255,255,0.16)', 'transparent']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <View className="mb-3 flex-row items-start justify-between">
+                    <View className="flex-1 pr-3">
+                      <AppText className="font-bold text-base text-[#0F172A]" numberOfLines={1}>{l.title}</AppText>
+                      <AppText className="mt-0.5 font-display text-2xl text-[#0F172A]" numberOfLines={1}>{l.price}</AppText>
+                    </View>
+                    <Chip size="sm" variant="secondary" color="warning" className="border border-white/70" style={{ backgroundColor: meta.bg }}>
+                      <Chip.Label className="font-bold text-[#0F172A]">{meta.label}</Chip.Label>
+                    </Chip>
+                  </View>
                   <View className="flex-row">
-                    <View className="mr-4 items-center justify-center overflow-hidden rounded-xl bg-surface-secondary" style={{ width: 130, height: 100 }}>
+                    <View className="mr-4 items-center justify-center overflow-hidden rounded-[22px] bg-white/60" style={{ width: 128, height: 100 }}>
                       {l.photoUrls?.[0] ? (
                         <Image source={{ uri: l.photoUrls[0] }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
                       ) : (
@@ -210,10 +423,16 @@ export default function Profile() {
                       )}
                     </View>
                     <View className="flex-1 justify-center">
-                      <View className="self-start rounded-md px-2.5 py-1" style={{ backgroundColor: meta.bg }}>
-                        <AppText className="text-sm font-medium text-foreground">{meta.label}</AppText>
+                      <View className="flex-row items-center">
+                        <Ionicons name="location-outline" size={17} color={BRAND_BLUE} />
+                        <AppText className="ml-1.5 text-sm font-semibold text-[#475569]" numberOfLines={1}>{l.city}</AppText>
                       </View>
-                      <AppText className="mt-2 text-sm leading-5 text-muted">{l.city}</AppText>
+                      <View className="mt-3 flex-row items-center rounded-full bg-white/55 px-3 py-2">
+                        <Ionicons name="analytics-outline" size={16} color="#64748B" />
+                        <AppText className="ml-2 text-xs font-semibold text-[#64748B]">
+                          Ko'rish va boshqarish
+                        </AppText>
+                      </View>
                     </View>
                   </View>
                 </Pressable>
@@ -227,7 +446,7 @@ export default function Profile() {
               await logout();
               router.replace('/home');
             }}
-            className="mx-4 mt-4 h-12 flex-row items-center justify-center rounded-xl bg-surface active:opacity-80"
+            className="mx-4 mt-4 h-12 flex-row items-center justify-center rounded-2xl border border-white/70 bg-white/55 active:opacity-80"
           >
             <Ionicons name="log-out-outline" size={20} color="#EF4444" />
             <AppText className="ml-2 font-semibold text-base" style={{ color: '#EF4444' }}>Chiqish</AppText>

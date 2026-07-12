@@ -134,9 +134,15 @@ export function TrustBadges({
 }) {
   return (
     <View className="mt-2 flex-row flex-wrap gap-2">
+      {/* Primary trust signal: Telegram account + Telegram-confirmed phone */}
       {verified && <VerifiedSellerBadge compact />}
-      {phoneVerified && <Badge icon="call" label="Telefon tasdiqlangan" color="#16A34A" bg="#DCFCE7" />}
-      {telegramLinked && <Badge icon="paper-plane" label="Telegram ulangan" color="#2563EB" bg="#DBEAFE" />}
+      {/* Avoid stacking duplicate chips when the verified badge already covers both. */}
+      {!verified && phoneVerified && (
+        <Badge icon="call" label="Telefon tasdiqlangan" color="#16A34A" bg="#DCFCE7" />
+      )}
+      {!verified && telegramLinked && (
+        <Badge icon="paper-plane" label="Telegram ulangan" color="#2563EB" bg="#DBEAFE" />
+      )}
       {activeRecently && <Badge icon="flash" label="Faol sotuvchi" color="#7C3AED" bg="#EDE9FE" />}
       {noReports && <Badge icon="shield-checkmark-outline" label="Shikoyatsiz" color="#0F766E" bg="#CCFBF1" />}
       {goodReviews && <Badge icon="thumbs-up" label="Yaxshi sharhlar" color="#B45309" bg="#FEF3C7" />}

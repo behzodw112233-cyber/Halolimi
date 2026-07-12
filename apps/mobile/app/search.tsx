@@ -9,6 +9,7 @@ import { AppText } from '../components/app-text';
 import { ListingCard } from '../components/listing-card';
 import { BRAND_BLUE } from '../constants/theme';
 import { UZ_CITIES } from '../constants/cities';
+import { useMyLocation } from '../lib/location';
 import { useSaved } from '../lib/saved';
 
 const RATING_FILTERS = [4.5, 4, 3];
@@ -40,11 +41,13 @@ export default function Search() {
     q?: string;
     city?: string;
     priceMax?: string;
+    nearby?: string;
   }>();
   const initialCategory = firstParam(params.category);
   const initialQ = firstParam(params.q);
   const initialCity = firstParam(params.city);
   const initialPriceMax = firstParam(params.priceMax);
+  const initialNearby = firstParam(params.nearby) === '1';
 
   const [q, setQ] = useState(initialQ ?? '');
   const [category, setCategory] = useState(initialCategory ?? '');
@@ -56,12 +59,21 @@ export default function Search() {
   const [weightMax, setWeightMax] = useState('');
   const [hasPhotos, setHasPhotos] = useState(false);
   const [minRating, setMinRating] = useState<number | undefined>();
+  const [nearby, setNearby] = useState(initialNearby);
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [searchNow] = useState(() => Math.floor(Date.now() / 60_000) * 60_000);
   const debouncedQ = useDebouncedValue(q, 350);
 
   const categories = useQuery(api.categories.list) ?? [];
   const { isSaved, toggleSave } = useSaved();
+  const myLocation = useMyLocation();
+
+  // Turning on "nearby" needs a GPS fix (once). Ask as soon as it's enabled.
+  useEffect(() => {
+    if (nearby && !myLocation.coords) myLocation.request();
+  }, [nearby, myLocation]);
+
+  const near = nearby ? myLocation.coords : null;
 
   const args = useMemo(
     () => ({
@@ -75,9 +87,11 @@ export default function Search() {
       weightMax: toNumber(weightMax),
       hasPhotos: hasPhotos || undefined,
       minRating,
+      nearLat: near?.lat,
+      nearLng: near?.lng,
       now: searchNow,
     }),
-    [breed, category, city, debouncedQ, hasPhotos, minRating, priceMax, priceMin, searchNow, weightMax, weightMin]
+    [breed, category, city, debouncedQ, hasPhotos, minRating, near, priceMax, priceMin, searchNow, weightMax, weightMin]
   );
 
   const {
@@ -95,6 +109,7 @@ export default function Search() {
     weightMax,
     hasPhotos,
     minRating,
+    nearby,
   ].filter(Boolean).length;
 
   const clearFilters = () => {
@@ -107,6 +122,7 @@ export default function Search() {
     setWeightMax('');
     setHasPhotos(false);
     setMinRating(undefined);
+    setNearby(false);
   };
 
   const loadMoreListings = () => {
@@ -195,6 +211,38 @@ export default function Search() {
                   </AppText>
                 </Pressable>
               </View>
+
+              {/* Real "nearby" — sorts by GPS distance */}
+              <Pressable
+                onPress={() => setNearby((v) => !v)}
+                className="mb-3 flex-row items-center justify-between rounded-xl px-3 py-3"
+                style={{ backgroundColor: nearby ? BRAND_BLUE + '12' : '#F1F3F5' }}
+              >
+                <View className="flex-1 flex-row items-center">
+                  <Ionicons name="navigate" size={19} color={BRAND_BLUE} />
+                  <View className="ml-2 flex-1">
+                    <AppText className="font-semibold text-sm text-foreground">Yaqin atrofda</AppText>
+                    <AppText className="text-xs text-muted" numberOfLines={1}>
+                      {nearby
+                        ? myLocation.coords
+                          ? `${myLocation.label ?? 'Joylashuv'} atrofidagilar tepada`
+                          : myLocation.denied
+                            ? 'Joylashuvga ruxsat bering'
+                            : 'Joylashuv aniqlanmoqda…'
+                        : 'Eng yaqindagi hayvonlarni koʻrsatadi'}
+                    </AppText>
+                  </View>
+                </View>
+                <View
+                  className="h-8 w-14 justify-center rounded-full px-1"
+                  style={{ backgroundColor: nearby ? BRAND_BLUE : '#E5E7EB' }}
+                >
+                  <View
+                    className="h-6 w-6 rounded-full bg-white"
+                    style={{ alignSelf: nearby ? 'flex-end' : 'flex-start' }}
+                  />
+                </View>
+              </Pressable>
 
               <AppText className="mb-2 font-semibold text-sm text-foreground">Shahar</AppText>
               <ScrollView
@@ -294,6 +342,7 @@ export default function Search() {
                 listing={{
                   ...listing,
                   promoted: listing.boostActive,
+                  distanceKm: listing.distanceKm,
                 }}
                 saved={isSaved(listing._id)}
                 onToggleSave={() => {

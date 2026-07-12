@@ -116,7 +116,8 @@ export default function Login() {
               <AppText style={styles.brand}>Halolmi</AppText>
               <AppText style={styles.title}>Kirish</AppText>
               <AppText style={styles.subtitle}>
-                Telefon raqamingizni kiriting. Uni suhbat va eʼlonlaringiz uchun ishlatamiz.
+                Telefon raqamingizni kiriting yoki Telegram orqali kiring.
+                Telegram orqali kirish sizni tasdiqlangan sotuvchi qiladi.
               </AppText>
 
               <AppText style={styles.label}>Ismingiz</AppText>
@@ -174,6 +175,9 @@ export default function Login() {
                   {waitingTelegram ? 'Telegram tasdiqlanmoqda...' : 'Telegram orqali kirish'}
                 </AppText>
               </Pressable>
+              <AppText style={styles.telegramHint}>
+                Telegram raqami ulansa — «Tasdiqlangan sotuvchi» belgisi beriladi
+              </AppText>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -296,5 +300,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     fontSize: 16,
     color: '#FFFFFF',
+  },
+  telegramHint: {
+    marginTop: 10,
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#64748B',
+    textAlign: 'center',
   },
 });

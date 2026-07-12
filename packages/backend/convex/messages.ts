@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { mutation, query, type MutationCtx } from './_generated/server';
 import { internal } from './_generated/api';
+import { createForUser } from './notifications';
 import type { Id } from './_generated/dataModel';
 
 const TYPING_MS = 5_000; // typing indicator lifetime
@@ -115,12 +116,13 @@ export const list = query({
     return Promise.all(
       sorted.map(async (m) => {
         const imageUrl = m.imageId ? await ctx.storage.getUrl(m.imageId) : null;
+        const audioUrl = m.audioId ? await ctx.storage.getUrl(m.audioId) : null;
         let replyPreview: { name: string; text: string } | null = null;
         if (m.replyToId) {
           const r = await ctx.db.get(m.replyToId);
           if (r) replyPreview = { name: r.senderName, text: r.deletedAt ? 'xabar' : r.text };
         }
-        return { ...m, imageUrl, replyPreview };
+        return { ...m, imageUrl, audioUrl, replyPreview };
       })
     );
   },
@@ -147,6 +149,7 @@ export const threadInfo = query({
     const now = Date.now();
     return {
       title: thread.title,
+      otherId: other?.userId ?? null,
       otherName: other?.otherName ?? 'Sotuvchi',
       otherOnline: !!otherUser?.lastSeen && now - otherUser.lastSeen < ONLINE_MS,
       otherTyping: !!other?.typingUntil && other.typingUntil > now,
@@ -162,6 +165,8 @@ export const send = mutation({
     senderName: v.string(),
     text: v.string(),
     imageId: v.optional(v.id('_storage')),
+    audioId: v.optional(v.id('_storage')),
+    audioDuration: v.optional(v.number()),
     replyToId: v.optional(v.id('messages')),
   },
   handler: async (ctx, args) => {
@@ -175,6 +180,8 @@ export const send = mutation({
       senderName: args.senderName,
       text: args.text,
       imageId: args.imageId,
+      audioId: args.audioId,
+      audioDuration: args.audioDuration,
       replyToId: args.replyToId,
       createdAt: Date.now(),
     });
@@ -182,7 +189,7 @@ export const send = mutation({
     // Keep the thread summary + unread counters fresh (real thread docs only).
     const tid = ctx.db.normalizeId('threads', args.threadId);
     if (tid) {
-      const preview = args.text || (args.imageId ? '📷 Rasm' : '');
+      const preview = args.text || (args.imageId ? '📷 Rasm' : args.audioId ? '🎤 Ovozli xabar' : '');
       await ctx.db.patch(tid, {
         lastText: preview,
         lastAt: Date.now(),
@@ -197,6 +204,14 @@ export const send = mutation({
           await ctx.db.patch(m._id, { lastReadAt: Date.now(), typingUntil: undefined });
         } else {
           await ctx.db.patch(m._id, { unread: m.unread + 1 });
+          await createForUser(ctx, {
+            userId: m.userId,
+            icon: 'chatbubble-ellipses-outline',
+            title: args.senderName || 'Yangi xabar',
+            body: preview || 'Sizga xabar yubordi.',
+            targetType: 'chat',
+            targetId: args.threadId,
+          });
           // Push the message to the recipient's device(s).
           await ctx.scheduler.runAfter(0, internal.push.send, {
             userId: m.userId,
@@ -269,6 +284,6 @@ export const deleteMessage = mutation({
   handler: async (ctx, { messageId, userId }) => {
     const msg = await ctx.db.get(messageId);
     if (!msg || msg.senderId !== userId) throw new Error('Ruxsat yoʻq');
-    await ctx.db.patch(messageId, { deletedAt: Date.now(), text: '', imageId: undefined });
+    await ctx.db.patch(messageId, { deletedAt: Date.now(), text: '', imageId: undefined, audioId: undefined });
   },
 });

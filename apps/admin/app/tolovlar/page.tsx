@@ -48,7 +48,7 @@ export default function TolovlarPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <PageHeader title="Tolovlar" subtitle="inPAY invoicelar, balans toldirish va reklama tolovlari" />
+      <PageHeader title="Tolovlar" subtitle="PayTech/inPAY invoicelar, balans toldirish va reklama tolovlari" />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
         {[
@@ -79,7 +79,7 @@ export default function TolovlarPage() {
         <Card.Header className="flex items-center justify-between p-5 pb-3">
           <div>
             <Card.Title className="text-base font-semibold text-neutral-900">
-              inPAY invoicelar
+              Payment invoicelar
             </Card.Title>
             <Card.Description className="mt-0.5 text-sm text-neutral-500">
               Checkout yaratilganidan webhook orqali yakunlangungacha bolgan real holat.

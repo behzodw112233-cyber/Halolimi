@@ -5,7 +5,7 @@ import { useMutation, useQuery } from 'convex/react';
 import type { FunctionReturnType } from 'convex/server';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -29,6 +29,16 @@ import {
 } from '../../components/trust-safety';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
+import {
+  AudioModule,
+  RecordingPresets,
+  hasExpoAudio,
+  setAudioModeAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from '../../lib/optional-native';
 import { uploadToConvex } from '../../lib/upload';
 
 type Msg = FunctionReturnType<typeof api.messages.list>[number];
@@ -48,6 +58,12 @@ const SUSPICIOUS_RE = /(oldindan|avans|karta|plastik|pul tashla|pul yubor|payme|
 function clock(ms: number) {
   const d = new Date(ms);
   return `${`${d.getHours()}`.padStart(2, '0')}:${`${d.getMinutes()}`.padStart(2, '0')}`;
+}
+
+/** m:ss for voice message durations. */
+function fmtDuration(totalSeconds: number) {
+  const s = Math.max(0, Math.round(totalSeconds));
+  return `${Math.floor(s / 60)}:${`${s % 60}`.padStart(2, '0')}`;
 }
 
 /** Group a message's reactions into [emoji, count] pairs. */
@@ -88,6 +104,46 @@ function TypingBubble() {
   );
 }
 
+/** Tap-to-play voice message bubble with a progress bar and duration. */
+function VoiceBubble({ uri, duration, mine }: { uri: string; duration: number; mine: boolean }) {
+  const player = useAudioPlayer(uri);
+  const status = useAudioPlayerStatus(player);
+  const dur = status.duration || duration || 0;
+  const progress = dur > 0 ? Math.min(1, status.currentTime / dur) : 0;
+  const remaining = status.playing || status.currentTime > 0 ? dur - status.currentTime : dur;
+
+  useEffect(() => {
+    if (status.didJustFinish) player.seekTo(0);
+  }, [status.didJustFinish, player]);
+
+  return (
+    <Pressable
+      onPress={() => (status.playing ? player.pause() : player.play())}
+      hitSlop={4}
+      className="flex-row items-center"
+      style={{ width: 180 }}
+    >
+      <View
+        className="mr-2 h-9 w-9 items-center justify-center rounded-full"
+        style={{ backgroundColor: mine ? '#ffffff30' : BRAND_BLUE }}
+      >
+        <Ionicons name={status.playing ? 'pause' : 'play'} size={16} color={mine ? '#fff' : '#fff'} style={status.playing ? undefined : { marginLeft: 2 }} />
+      </View>
+      <View className="flex-1">
+        <View className="h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: mine ? '#ffffff40' : '#00000022' }}>
+          <View
+            className="h-1.5 rounded-full"
+            style={{ width: `${progress * 100}%`, backgroundColor: mine ? '#fff' : BRAND_BLUE }}
+          />
+        </View>
+        <AppText className="mt-1 text-[11px]" style={{ color: mine ? '#ffffffCC' : '#666' }}>
+          {fmtDuration(remaining)}
+        </AppText>
+      </View>
+    </Pressable>
+  );
+}
+
 export default function Conversation() {
   const router = useRouter();
   const { id, name = 'Sotuvchi', sellerId } = useLocalSearchParams<{
@@ -124,8 +180,12 @@ export default function Conversation() {
   const [stars, setStars] = useState(5);
   const [reviewText, setReviewText] = useState('');
   const lastTypedRef = useRef(0);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder, 200);
 
   const otherName = info?.otherName ?? String(name);
+  const callTarget = sellerUserId ?? ((info?.otherId ?? undefined) as Id<'users'> | undefined);
+  const canCall = !!callTarget && callTarget !== userId;
   const canReviewSeller = !!sellerUserId && sellerUserId !== userId;
   const otherLastReadAt = info?.otherLastReadAt ?? 0;
   const suspiciousDraft = SUSPICIOUS_RE.test(draft);
@@ -192,6 +252,64 @@ export default function Conversation() {
       setSending(false);
     }
   }, [userId, sending, generateUploadUrl, send, threadId, senderName]);
+
+  const startRecording = useCallback(async () => {
+    if (!userId || sending || recorderState.isRecording) return;
+    if (!hasExpoAudio) {
+      Alert.alert('Audio moduli kerak', 'Ovozli xabar uchun ilovani qayta build qilib oÊ»rnating.');
+      return;
+    }
+    const perm = await AudioModule.requestRecordingPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Ruxsat kerak', 'Ovozli xabar yozish uchun mikrofonga ruxsat bering.');
+      return;
+    }
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+    await recorder.prepareToRecordAsync();
+    recorder.record();
+  }, [userId, sending, recorderState.isRecording, recorder]);
+
+  const cancelRecording = useCallback(async () => {
+    if (!recorderState.isRecording) return;
+    await recorder.stop();
+  }, [recorderState.isRecording, recorder]);
+
+  const stopAndSendRecording = useCallback(async () => {
+    if (!userId || !recorderState.isRecording) return;
+    const durationSec = recorder.currentTime;
+    await recorder.stop();
+    const uri = recorder.uri;
+    if (!uri || durationSec < 1) return;
+    setSending(true);
+    try {
+      const url = await generateUploadUrl();
+      const storageId = await uploadToConvex(url, uri, 'audio/m4a');
+      if (storageId) {
+        await send({
+          threadId,
+          senderId: userId,
+          senderName,
+          text: '',
+          audioId: storageId as Id<'_storage'>,
+          audioDuration: durationSec,
+        });
+      } else {
+        Alert.alert('Xatolik', 'Ovozli xabar yuborilmadi.');
+      }
+    } catch {
+      Alert.alert('Xatolik', 'Ovozli xabar yuborilmadi.');
+    } finally {
+      setSending(false);
+    }
+  }, [userId, recorderState.isRecording, recorder, generateUploadUrl, send, threadId, senderName]);
+
+  const startVideoCall = useCallback(() => {
+    if (!callTarget) return;
+    router.push({
+      pathname: '/call/[id]',
+      params: { id: 'new', role: 'caller', threadId, calleeId: callTarget, calleeName: otherName },
+    } as unknown as Href);
+  }, [callTarget, threadId, otherName, router]);
 
   const onReact = useCallback(
     (messageId: Id<'messages'>, emoji: string) => {
@@ -286,6 +404,9 @@ export default function Conversation() {
               style={{ width: 200, height: 200, borderRadius: 12, marginBottom: item.text ? 6 : 0 }}
             />
           ) : null}
+          {item.audioUrl && !deleted ? (
+            <VoiceBubble uri={item.audioUrl} duration={item.audioDuration ?? 0} mine={mine} />
+          ) : null}
           {deleted ? (
             <AppText className="text-base italic" style={{ color: mine ? '#ffffffCC' : '#888' }}>
               Xabar oʻchirildi
@@ -358,6 +479,11 @@ export default function Conversation() {
             </AppText>
           ) : null}
         </View>
+        {canCall ? (
+          <Pressable onPress={startVideoCall} hitSlop={10} className="h-9 w-9 items-center justify-center">
+            <Ionicons name="videocam" size={23} color={BRAND_BLUE} />
+          </Pressable>
+        ) : null}
         {canReviewSeller ? (
           <>
             <Pressable onPress={() => setRatingOpen(true)} hitSlop={10} className="h-9 w-9 items-center justify-center">
@@ -390,7 +516,7 @@ export default function Conversation() {
             ListHeaderComponent={info?.otherTyping ? <TypingBubble /> : null}
             ListFooterComponent={
               canReviewSeller ? (
-                <View style={{ transform: [{ scaleY: -1 }] }}>
+                <View>
                   <View className="px-3 pb-2">
                     <SafetyBanner compact />
                   </View>
@@ -401,7 +527,7 @@ export default function Conversation() {
               ) : null
             }
             ListEmptyComponent={
-              <View className="flex-1 items-center justify-center px-8" style={{ transform: [{ scaleY: -1 }] }}>
+              <View className="flex-1 items-center justify-center px-8">
                 <Ionicons name="chatbubble-ellipses-outline" size={40} color="#cbd5e1" />
                 <AppText className="mt-3 text-center text-base text-muted">Suhbatni boshlang. Xushmuomala boʻling 🤝</AppText>
               </View>
@@ -439,32 +565,73 @@ export default function Conversation() {
         <SuspiciousMessageWarning visible={suspiciousDraft} />
 
         {/* Input bar */}
-        <View className="flex-row items-end border-t border-border px-3 pt-2" style={{ paddingBottom: Math.max(bottom, 8) }}>
-          {!editing ? (
-            <Pressable onPress={attachImage} disabled={sending} hitSlop={6} className="mb-1.5 mr-1 h-10 w-9 items-center justify-center">
-              <Ionicons name="image-outline" size={24} color={BRAND_BLUE} />
-            </Pressable>
-          ) : null}
-          <View className="mr-2 max-h-28 flex-1 justify-center rounded-2xl border border-border bg-surface px-4 py-1">
-            <TextInput
-              value={draft}
-              onChangeText={onChangeDraft}
-              placeholder="Xabar yozing…"
-              placeholderTextColor="#9ca3af"
-              multiline
-              className="text-base text-foreground"
-              style={{ fontFamily: 'Inter-Regular', paddingTop: 8, paddingBottom: 8, maxHeight: 100 }}
-            />
-          </View>
-          <Pressable
-            onPress={onSend}
-            disabled={!draft.trim() || sending}
-            className="h-11 w-11 items-center justify-center rounded-full active:opacity-80"
-            style={{ backgroundColor: draft.trim() && !sending ? BRAND_BLUE : '#cbd5e1' }}
+        {recorderState.isRecording ? (
+          <View
+            className="flex-row items-center border-t border-border px-3 pt-2"
+            style={{ paddingBottom: Math.max(bottom, 8) }}
           >
-            <Ionicons name={editing ? 'checkmark' : 'send'} size={19} color="#fff" />
-          </Pressable>
-        </View>
+            <Pressable
+              onPress={cancelRecording}
+              hitSlop={8}
+              className="mr-2 h-11 w-11 items-center justify-center rounded-full"
+              style={{ backgroundColor: '#EAEAEC' }}
+            >
+              <Ionicons name="trash-outline" size={20} color="#DC2626" />
+            </Pressable>
+            <View className="mr-2 flex-1 flex-row items-center rounded-2xl border border-border bg-surface px-4 py-3">
+              <View className="mr-2 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#DC2626' }} />
+              <AppText className="text-base text-foreground">
+                Yozilmoqda… {fmtDuration(recorderState.durationMillis / 1000)}
+              </AppText>
+            </View>
+            <Pressable
+              onPress={stopAndSendRecording}
+              disabled={sending}
+              className="h-11 w-11 items-center justify-center rounded-full active:opacity-80"
+              style={{ backgroundColor: BRAND_BLUE }}
+            >
+              <Ionicons name="send" size={19} color="#fff" />
+            </Pressable>
+          </View>
+        ) : (
+          <View className="flex-row items-end border-t border-border px-3 pt-2" style={{ paddingBottom: Math.max(bottom, 8) }}>
+            {!editing ? (
+              <Pressable onPress={attachImage} disabled={sending} hitSlop={6} className="mb-1.5 mr-1 h-10 w-9 items-center justify-center">
+                <Ionicons name="image-outline" size={24} color={BRAND_BLUE} />
+              </Pressable>
+            ) : null}
+            <View className="mr-2 max-h-28 flex-1 justify-center rounded-2xl border border-border bg-surface px-4 py-1">
+              <TextInput
+                value={draft}
+                onChangeText={onChangeDraft}
+                placeholder="Xabar yozing…"
+                placeholderTextColor="#9ca3af"
+                multiline
+                className="text-base text-foreground"
+                style={{ fontFamily: 'Inter-Regular', paddingTop: 8, paddingBottom: 8, maxHeight: 100 }}
+              />
+            </View>
+            {!editing && !draft.trim() ? (
+              <Pressable
+                onPress={startRecording}
+                disabled={sending}
+                className="h-11 w-11 items-center justify-center rounded-full active:opacity-80"
+                style={{ backgroundColor: BRAND_BLUE }}
+              >
+                <Ionicons name="mic" size={20} color="#fff" />
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={onSend}
+                disabled={!draft.trim() || sending}
+                className="h-11 w-11 items-center justify-center rounded-full active:opacity-80"
+                style={{ backgroundColor: draft.trim() && !sending ? BRAND_BLUE : '#cbd5e1' }}
+              >
+                <Ionicons name={editing ? 'checkmark' : 'send'} size={19} color="#fff" />
+              </Pressable>
+            )}
+          </View>
+        )}
       </KeyboardAvoidingView>
 
       {/* Long-press action sheet: react / reply / edit / delete */}

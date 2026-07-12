@@ -18,9 +18,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../components/app-text';
 import { BREEDS, CATEGORY_LABELS } from '../constants/breeds';
-import { UZ_CITIES } from '../constants/cities';
+import {
+  districtsOf,
+  nearestRegion,
+  REGION_NAMES,
+  regionCentroid,
+} from '../constants/regions';
 import { BRAND_BLUE } from '../constants/theme';
 import { useAuth } from '../lib/auth';
+import { useMyLocation } from '../lib/location';
 import { uploadToConvex } from '../lib/upload';
 
 const STEP_COUNT = 8;
@@ -58,8 +64,12 @@ export default function Create() {
   const [saleTypes, setSaleTypes] = useState<string[]>(['naqt']);
   const [price, setPrice] = useState('');
   const [currency, setCurrency] = useState<'usd' | 'uzs'>('usd');
-  const [cityQuery, setCityQuery] = useState('');
-  const [city, setCity] = useState('Toshkent');
+  // Location: viloyat → tuman picker, or one-tap GPS.
+  const [region, setRegion] = useState<string | null>(null);
+  const [district, setDistrict] = useState<string | null>(null);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locBusy, setLocBusy] = useState(false);
+  const myLocation = useMyLocation();
   const [phone, setPhone] = useState('+998 ');
   const [phoneError, setPhoneError] = useState(false);
   const [otpOpen, setOtpOpen] = useState(false);
@@ -77,10 +87,40 @@ export default function Create() {
     () => breeds.filter((b) => b.toLowerCase().includes(query.toLowerCase())),
     [breeds, query]
   );
-  const filteredCities = useMemo(
-    () => UZ_CITIES.filter((c) => c.toLowerCase().includes(cityQuery.toLowerCase())),
-    [cityQuery]
-  );
+  // GPS one-tap: detect coordinates, auto-pick the nearest viloyat, then let the
+  // seller confirm their tuman. Simple enough for a shepherd — one button.
+  const detectLocation = async () => {
+    tap();
+    setLocBusy(true);
+    try {
+      const c = await myLocation.request();
+      if (c) {
+        setCoords(c);
+        setRegion(nearestRegion(c).name);
+        setDistrict(null);
+      }
+    } finally {
+      setLocBusy(false);
+    }
+  };
+
+  // Manual pick: choosing a viloyat uses its centroid for distance until (and
+  // unless) the seller uses GPS.
+  const chooseRegion = (name: string) => {
+    tap();
+    setRegion(name);
+    setDistrict(null);
+    if (!coords) setCoords(regionCentroid(name));
+  };
+
+  // Finish the location step. District is optional ("butun viloyat boʻylab").
+  const confirmLocation = (tuman: string | null) => {
+    tap();
+    setDistrict(tuman);
+    setStep(7);
+  };
+
+  const locationLabel = district ? `${region} · ${district}` : region;
 
   const close = () => {
     tap();
@@ -158,7 +198,13 @@ export default function Create() {
         title: `${catLabel}${breed ? ' · ' + breed : ''}`,
         price: `${price || '0'} ${currency === 'usd' ? 'y.e.' : 'soʻm'}`,
         category,
-        city,
+        // `city` stays the human label shown on cards; region/district/coords
+        // power filtering and real "nearby" distance.
+        city: district || region || 'Oʻzbekiston',
+        region: region || undefined,
+        district: district || undefined,
+        lat: coords?.lat,
+        lng: coords?.lng,
         phone: phone.trim(),
         specs: [
           { label: 'Vazni', value: `${weight || '—'} kg` },
@@ -343,15 +389,69 @@ export default function Create() {
             </View>
           )}
 
-          {/* 6 — Location */}
+          {/* 6 — Location: viloyat → tuman, or one-tap GPS */}
           {step === 6 && (
             <View>
-              <StepTitle>Sotish manzili</StepTitle>
-              <SearchBox value={cityQuery} onChange={setCityQuery} placeholder="Shahar boʻyicha qidirish" />
-              <AppText className="mb-2 font-bold text-lg text-foreground">Mashhur shaharlar</AppText>
-              {filteredCities.map((c) => (
-                <RowLink key={c} label={c} onPress={() => { tap(); setCity(c); setStep(7); }} />
-              ))}
+              <StepTitle>Manzil</StepTitle>
+
+              {/* One-tap GPS — the simplest path */}
+              <Pressable
+                onPress={detectLocation}
+                disabled={locBusy}
+                className="mb-4 flex-row items-center rounded-2xl px-4 py-4 active:opacity-90"
+                style={{ backgroundColor: BRAND_BLUE }}
+              >
+                <View className="mr-3 h-10 w-10 items-center justify-center rounded-full bg-white/20">
+                  <Ionicons name="locate" size={22} color="#fff" />
+                </View>
+                <View className="flex-1">
+                  <AppText className="font-semibold text-base text-white">
+                    {locBusy ? 'Aniqlanmoqda…' : 'Joylashuvni aniqlash'}
+                  </AppText>
+                  <AppText className="text-[13px] text-white/80">
+                    Telefoningiz orqali avtomatik topamiz
+                  </AppText>
+                </View>
+              </Pressable>
+
+              {myLocation.denied && (
+                <AppText className="mb-3 text-sm" style={{ color: '#EF4444' }}>
+                  Joylashuvga ruxsat berilmadi. Pastdan viloyatni tanlang.
+                </AppText>
+              )}
+
+              {!region ? (
+                <>
+                  <AppText className="mb-2 font-bold text-lg text-foreground">
+                    yoki viloyatni tanlang
+                  </AppText>
+                  {REGION_NAMES.map((r) => (
+                    <RowLink key={r} label={r} onPress={() => chooseRegion(r)} />
+                  ))}
+                </>
+              ) : (
+                <>
+                  <View className="mb-3 flex-row items-center justify-between rounded-2xl bg-surface p-4">
+                    <View className="flex-1 flex-row items-center">
+                      <Ionicons name="location" size={20} color={BRAND_BLUE} />
+                      <AppText className="ml-2 flex-1 font-semibold text-base text-foreground" numberOfLines={1}>
+                        {locationLabel}
+                      </AppText>
+                    </View>
+                    <Pressable onPress={() => { tap(); setRegion(null); setDistrict(null); }} hitSlop={8}>
+                      <AppText className="font-semibold text-sm" style={{ color: BRAND_BLUE }}>
+                        Oʻzgartirish
+                      </AppText>
+                    </Pressable>
+                  </View>
+
+                  <AppText className="mb-2 font-bold text-lg text-foreground">Tumaningizni tanlang</AppText>
+                  <RowLink label={`Butun ${region} boʻylab`} onPress={() => confirmLocation(null)} />
+                  {districtsOf(region).map((d) => (
+                    <RowLink key={d} label={d} onPress={() => confirmLocation(d)} />
+                  ))}
+                </>
+              )}
             </View>
           )}
 

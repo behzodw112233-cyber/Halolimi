@@ -63,6 +63,11 @@ export default function FoydalanuvchilarPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           <p className="font-medium text-neutral-900">{u.name}</p>
+                          {(u.verifiedAt || u.telegramId) && (
+                            <Chip variant="soft" color="success" size="sm">
+                              Tasdiqlangan
+                            </Chip>
+                          )}
                           {u.isDealer && (
                             <Chip variant="soft" color="accent" size="sm">
                               Diler

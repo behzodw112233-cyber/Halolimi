@@ -7,14 +7,15 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
-import { ActivityIndicator, Alert, Modal, Platform, Pressable, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../components/app-text';
 import { BRAND_BLUE } from '../constants/theme';
 import { useAuth } from '../lib/auth';
+import { browserCheckoutUrl } from '../lib/checkout-url';
 
-// Map the UI payment button to inPAY's payment_method values.
-const METHOD_MAP: Record<string, string> = { click: 'click', payme: 'payme', uzcard: 'inPAY' };
+// Map the UI payment button to PayTech/inPAY payment_method values.
+const METHOD_MAP: Record<string, string> = { click: 'click', payme: 'payme', uzcard: 'atmos' };
 type PromoTier = 'alo' | 'zor' | 'vip' | 'lux';
 
 type Tier = {
@@ -83,7 +84,7 @@ export default function Promote() {
         method: METHOD_MAP[methodId] ?? 'inPAY',
       });
       setPayOpen(false);
-      await WebBrowser.openBrowserAsync(payUrl);
+      await WebBrowser.openBrowserAsync(browserCheckoutUrl(payUrl));
       router.replace('/review');
     } catch (e) {
       Alert.alert('Xatolik', e instanceof Error ? e.message : 'Toʻlovni yaratib boʻlmadi.');
@@ -107,7 +108,11 @@ export default function Promote() {
           <View className="h-full rounded-full" style={{ width: '100%', backgroundColor: BRAND_BLUE }} />
         </View>
 
-        <View className="flex-1 px-4">
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
+          showsVerticalScrollIndicator={false}
+        >
           <AppText className="mb-5 font-display text-4xl text-foreground">Sotuvni tezlashtiring</AppText>
 
           {TIERS.map((t) => {
@@ -166,10 +171,10 @@ export default function Promote() {
             }
             return card;
           })}
-        </View>
+        </ScrollView>
 
         {/* CTA */}
-        <View className="px-4 pb-2">
+        <View className="border-t border-border bg-background px-4 pb-2 pt-3">
           <Pressable
             onPress={() => { tap(); setPayOpen(true); }}
             className="h-14 items-center justify-center rounded-2xl active:opacity-90"
@@ -190,19 +195,23 @@ export default function Promote() {
               <Ionicons name="close" size={26} color="#9ca3af" />
             </Pressable>
           </View>
-          <View className="flex-row flex-wrap justify-between">
+          <View className="gap-3">
             {enabledPayments.map((p) => (
               <Pressable
                 key={p.id}
                 onPress={() => pay(p.id)}
                 disabled={busy}
-                className="mb-3 items-center justify-center rounded-2xl border border-border p-4 active:opacity-70"
-                style={{ width: '48%', height: 96, opacity: busy ? 0.5 : 1 }}
+                className="h-16 flex-row items-center rounded-2xl border border-border bg-surface px-4 active:opacity-70"
+                style={{ opacity: busy ? 0.5 : 1 }}
               >
-                <View className="mb-2 rounded-lg px-3 py-1.5" style={{ backgroundColor: p.color }}>
-                  <AppText className="font-bold text-sm text-white">{p.label.split('/')[0]}</AppText>
+                <View className="mr-3 h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: p.color }}>
+                  <AppText className="font-bold text-sm text-white">{p.label.slice(0, 1)}</AppText>
                 </View>
-                <AppText className="text-sm text-foreground">{p.label}</AppText>
+                <View className="flex-1">
+                  <AppText className="font-semibold text-base text-foreground">{p.label}</AppText>
+                  <AppText className="mt-0.5 text-xs text-muted">Xavfsiz checkout</AppText>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
               </Pressable>
             ))}
           </View>

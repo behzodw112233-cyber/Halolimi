@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { internal } from './_generated/api';
+import { createForUser } from './notifications';
 
 /** Saved listing ids for a user (for heart states). */
 export const ids = query({
@@ -61,6 +62,14 @@ export const toggle = mutation({
     // Nudge the seller that a buyer is interested (never notify self-saves).
     const listing = await ctx.db.get(listingId);
     if (listing?.ownerId && listing.ownerId !== userId) {
+      await createForUser(ctx, {
+        userId: listing.ownerId,
+        icon: 'bookmark-outline',
+        title: 'Kimdir qiziqmoqda',
+        body: `Bir xaridor "${listing.title}" eʼloningizni saqladi.`,
+        targetType: 'listing',
+        targetId: listingId,
+      });
       await ctx.scheduler.runAfter(0, internal.push.send, {
         userId: listing.ownerId,
         title: 'Kimdir qiziqmoqda 👀',

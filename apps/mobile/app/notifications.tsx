@@ -21,11 +21,26 @@ export default function Notifications() {
   const router = useRouter();
   const { items, markSeen } = useNotifications();
   const notifications = items ?? [];
+  const latestNotificationKey = notifications[0]
+    ? `${notifications[0]._id}:${notifications[0].createdAt}`
+    : '';
+
+  const openNotification = (n: (typeof notifications)[number]) => {
+    if (n.targetType === 'chat' && n.targetId) {
+      router.push({ pathname: '/chat/[id]', params: { id: n.targetId } });
+    } else if (n.targetType === 'listing' && n.targetId) {
+      router.push({ pathname: '/listing/[id]', params: { id: n.targetId } });
+    } else if (n.targetType === 'seller' || n.targetType === 'review') {
+      if (n.targetId) router.push({ pathname: '/seller/[id]', params: { id: n.targetId } });
+    } else if (n.targetType === 'call' && n.targetId) {
+      router.push({ pathname: '/call/[id]', params: { id: n.targetId, role: 'callee' } } as never);
+    }
+  };
 
   // Opening the screen clears the unread badge.
   useEffect(() => {
-    if (items) markSeen();
-  }, [items, markSeen]);
+    if (latestNotificationKey) markSeen();
+  }, [latestNotificationKey]);
 
   return (
     <View className="flex-1 bg-background">
@@ -55,26 +70,41 @@ export default function Notifications() {
         ) : (
           <ScrollView showsVerticalScrollIndicator={false}>
             {notifications.map((n) => (
-              <View
+              <Pressable
                 key={n._id}
                 className="flex-row border-b border-border px-4 py-4"
+                onPress={() => openNotification(n)}
+                disabled={!n.targetType}
+                style={({ pressed }) => ({
+                  backgroundColor: !n.readAt && n.targetType ? BRAND_BLUE + '08' : 'transparent',
+                  opacity: pressed ? 0.72 : 1,
+                })}
               >
                 <View
                   className="mr-3 h-11 w-11 items-center justify-center rounded-full"
-                  style={{ backgroundColor: BRAND_BLUE + '14' }}
+                  style={{ backgroundColor: !n.readAt && n.targetType ? BRAND_BLUE : BRAND_BLUE + '14' }}
                 >
-                  <Ionicons name={n.icon as keyof typeof Ionicons.glyphMap} size={22} color={BRAND_BLUE} />
+                  <Ionicons
+                    name={n.icon as keyof typeof Ionicons.glyphMap}
+                    size={22}
+                    color={!n.readAt && n.targetType ? '#fff' : BRAND_BLUE}
+                  />
                 </View>
                 <View className="flex-1">
-                  <AppText className="font-semibold text-[15px] text-foreground">
-                    {n.title}
-                  </AppText>
+                  <View className="flex-row items-start">
+                    <AppText className="flex-1 font-semibold text-[15px] text-foreground">
+                      {n.title}
+                    </AppText>
+                    {!n.readAt && n.targetType ? (
+                      <View className="ml-2 mt-1.5 h-2 w-2 rounded-full" style={{ backgroundColor: BRAND_BLUE }} />
+                    ) : null}
+                  </View>
                   <AppText className="mt-0.5 text-sm leading-5 text-muted">
                     {n.body}
                   </AppText>
                   <AppText className="mt-1 text-xs text-muted">{relTime(n.createdAt)}</AppText>
                 </View>
-              </View>
+              </Pressable>
             ))}
           </ScrollView>
         )}

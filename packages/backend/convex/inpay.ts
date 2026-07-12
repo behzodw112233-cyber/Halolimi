@@ -15,6 +15,7 @@ declare const process: { env: Record<string, string | undefined> };
 
 const BASE = 'https://inpay.uz/api/v1';
 const MIN_AMOUNT = 1000;
+const PAYTECH_TIMEOUT_MS = 20_000;
 
 // Shapes of the inPAY API responses we consume.
 interface InpayAuthResponse {
@@ -33,6 +34,17 @@ interface InpayTransactionResponse {
   success?: boolean;
   status?: string;
   payment_method?: string;
+}
+interface PaytechCreateResponse {
+  id?: number | string;
+  order_id?: number | string;
+  external_id?: string;
+  amount?: number;
+  payment_method?: string;
+  payment_link?: string;
+  pay_url?: string;
+  message?: string;
+  error?: string;
 }
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -78,9 +90,39 @@ function callbackUrl() {
   return `${site.replace(/\/$/, '')}/inpay/callback`;
 }
 
+function paytechCallbackUrl() {
+  const site = process.env.CONVEX_SITE_URL;
+  if (!site) throw new Error('CONVEX_SITE_URL is not configured');
+  return `${site.replace(/\/$/, '')}/paytech/callback`;
+}
+
+function paytechServiceUrl() {
+  const url = process.env.PAYTECH_SERVICE_URL;
+  return url ? url.replace(/\/$/, '') : null;
+}
+
+function normalizePaytechPayUrl(payUrl: string) {
+  const baseUrl = paytechServiceUrl();
+  if (!baseUrl) return payUrl;
+  try {
+    const url = new URL(payUrl);
+    if (url.hostname !== 'paytech.local') return payUrl;
+    return `${baseUrl}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return payUrl;
+  }
+}
+
 function normalizeMethod(method?: string) {
   if (!method || method === 'inPAY') return '';
   return method;
+}
+
+function normalizePaytechMethod(method?: string) {
+  if (!method || method === 'inPAY') return 'payme';
+  const value = method.toLowerCase();
+  if (value === 'uzcard' || value === 'humo' || value === 'inpay') return 'atmos';
+  return value;
 }
 
 function normalizeInvoiceStatus(status?: string): 'success' | 'failed' | 'cancelled' | 'pending' | null {
@@ -105,32 +147,20 @@ export const createInvoice = action({
     if (!Number.isFinite(amount) || amount < MIN_AMOUNT) {
       throw new Error(`Minimal summa ${MIN_AMOUNT} soʻm`);
     }
-    const bearer = await authorize();
-
-    const res = await fetch(`${BASE}/create/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
-      body: JSON.stringify({
-        merchant_id: createMerchantId(),
-        amount: Math.round(amount),
-        description: 'Halolmi hisobini toʻldirish',
-        payment_method: normalizeMethod(method),
-        callback_url: callbackUrl(),
-      }),
+    const checkout = await createCheckout({
+      amount: Math.round(amount),
+      description: 'Halolmi hisobini toldirish',
+      method,
     });
-    const data = (await res.json()) as InpayCreateResponse;
-    if (!data.success || !data.pay_url || !data.order_id) {
-      throw createError(data);
-    }
 
     await ctx.runMutation(internal.inpay.createPending, {
-      orderId: data.order_id,
+      orderId: checkout.orderId,
       userId,
       amount: Math.round(amount),
-      method: methodLabel(method),
-      payUrl: data.pay_url,
+      method: checkout.method,
+      payUrl: checkout.payUrl,
     });
-    return { orderId: data.order_id as string, payUrl: data.pay_url as string };
+    return { orderId: checkout.orderId, payUrl: checkout.payUrl };
   },
 });
 
@@ -171,35 +201,23 @@ export const createPromoteInvoice = action({
   ): Promise<{ orderId: string; payUrl: string }> => {
     const amount = TIER_PRICE[tier];
     if (!amount) throw new Error('Nomaʼlum tarif');
-    const bearer = await authorize();
-
-    const res = await fetch(`${BASE}/create/`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
-      body: JSON.stringify({
-        merchant_id: createMerchantId(),
-        amount,
-        description: `Reklama: ${tier.toUpperCase()}`,
-        payment_method: normalizeMethod(method),
-        callback_url: callbackUrl(),
-      }),
+    const checkout = await createCheckout({
+      amount,
+      description: `Reklama: ${tier.toUpperCase()}`,
+      method,
     });
-    const data = (await res.json()) as InpayCreateResponse;
-    if (!data.success || !data.pay_url || !data.order_id) {
-      throw createError(data);
-    }
 
     await ctx.runMutation(internal.inpay.createPending, {
-      orderId: data.order_id,
+      orderId: checkout.orderId,
       userId,
       amount,
-      method: methodLabel(method),
-      payUrl: data.pay_url,
+      method: checkout.method,
+      payUrl: checkout.payUrl,
       purpose: 'promote',
       listingId,
       tier,
     });
-    return { orderId: data.order_id as string, payUrl: data.pay_url as string };
+    return { orderId: checkout.orderId, payUrl: checkout.payUrl };
   },
 });
 
@@ -232,11 +250,95 @@ export const verifyAndSettle = internalAction({
 const METHOD_LABEL: Record<string, string> = {
   click: 'Click',
   payme: 'Payme',
+  atmos: 'Atmos',
   uzcard: 'Uzcard',
   inpay: 'inPAY',
+  paytech: 'PayTech',
 };
 const methodLabel = (m?: string) =>
   (m ? METHOD_LABEL[m.toLowerCase()] ?? m : undefined) ?? 'inPAY';
+
+async function createPaytechOrder(args: {
+  externalId: string;
+  amount: number;
+  description: string;
+  method?: string;
+}): Promise<{ orderId: string; payUrl: string; method: string }> {
+  const baseUrl = paytechServiceUrl();
+  if (!baseUrl) throw new Error('PAYTECH_SERVICE_URL is not configured');
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PAYTECH_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}/api/v1/orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.PAYTECH_SERVICE_TOKEN
+          ? { Authorization: `Bearer ${process.env.PAYTECH_SERVICE_TOKEN}` }
+          : {}),
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        external_id: args.externalId,
+        product_name: args.description,
+        amount: args.amount,
+        payment_method: normalizePaytechMethod(args.method),
+        callback_url: paytechCallbackUrl(),
+      }),
+    });
+    const data = (await res.json()) as PaytechCreateResponse;
+    const payUrl = data.payment_link ?? data.pay_url;
+    const orderId = data.order_id ?? data.id ?? data.external_id;
+    if (!res.ok || !payUrl || orderId === undefined || orderId === null) {
+      throw new Error(data.message ?? data.error ?? 'PayTech payment create failed');
+    }
+    return {
+      orderId: String(orderId),
+      payUrl: normalizePaytechPayUrl(payUrl),
+      method: methodLabel(data.payment_method ?? args.method ?? 'paytech'),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function createCheckout(args: {
+  amount: number;
+  description: string;
+  method?: string;
+}): Promise<{ orderId: string; payUrl: string; method: string }> {
+  if (paytechServiceUrl()) {
+    return createPaytechOrder({
+      externalId: `hm_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+      amount: args.amount,
+      description: args.description,
+      method: args.method,
+    });
+  }
+
+  const bearer = await authorize();
+  const res = await fetch(`${BASE}/create/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
+    body: JSON.stringify({
+      merchant_id: createMerchantId(),
+      amount: args.amount,
+      description: args.description,
+      payment_method: normalizeMethod(args.method),
+      callback_url: callbackUrl(),
+    }),
+  });
+  const data = (await res.json()) as InpayCreateResponse;
+  if (!data.success || !data.pay_url || !data.order_id) {
+    throw createError(data);
+  }
+  return {
+    orderId: data.order_id as string,
+    payUrl: data.pay_url as string,
+    method: methodLabel(args.method),
+  };
+}
 
 /** Idempotently credit a verified top-up (only a still-pending invoice pays out). */
 export const markPaid = internalMutation({
@@ -280,6 +382,28 @@ export const markPaid = internalMutation({
       date: new Date().toLocaleDateString('ru-RU'),
       status: 'success',
     });
+  },
+});
+
+export const settlePaytech = internalMutation({
+  args: {
+    orderId: v.string(),
+    status: invoiceStatus,
+    method: v.optional(v.string()),
+    transactionId: v.optional(v.number()),
+  },
+  handler: async (ctx, { orderId, status, method, transactionId }) => {
+    if (status === 'success') {
+      await ctx.runMutation(internal.inpay.markPaid, {
+        orderId,
+        method,
+        transactionId,
+      });
+      return;
+    }
+    if (status === 'failed' || status === 'cancelled') {
+      await ctx.runMutation(internal.inpay.markStatus, { orderId, status });
+    }
   },
 });
 

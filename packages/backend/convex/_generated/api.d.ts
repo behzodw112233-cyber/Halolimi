@@ -10,25 +10,32 @@
 
 import type * as admin from "../admin.js";
 import type * as ads from "../ads.js";
+import type * as aiAdvisor from "../aiAdvisor.js";
 import type * as authTelegram from "../authTelegram.js";
+import type * as calls from "../calls.js";
 import type * as categories from "../categories.js";
+import type * as cloudflareStream from "../cloudflareStream.js";
 import type * as dealers from "../dealers.js";
 import type * as files from "../files.js";
 import type * as follows from "../follows.js";
 import type * as http from "../http.js";
 import type * as inpay from "../inpay.js";
+import type * as leads from "../leads.js";
 import type * as listings from "../listings.js";
+import type * as maintenance from "../maintenance.js";
 import type * as messages from "../messages.js";
 import type * as notifications from "../notifications.js";
 import type * as payments from "../payments.js";
 import type * as plans from "../plans.js";
 import type * as push from "../push.js";
+import type * as reels from "../reels.js";
 import type * as reports from "../reports.js";
 import type * as reviews from "../reviews.js";
 import type * as saved from "../saved.js";
 import type * as seed from "../seed.js";
 import type * as settings from "../settings.js";
 import type * as stats from "../stats.js";
+import type * as trust from "../trust.js";
 import type * as users from "../users.js";
 
 import type {
@@ -40,25 +47,32 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   ads: typeof ads;
+  aiAdvisor: typeof aiAdvisor;
   authTelegram: typeof authTelegram;
+  calls: typeof calls;
   categories: typeof categories;
+  cloudflareStream: typeof cloudflareStream;
   dealers: typeof dealers;
   files: typeof files;
   follows: typeof follows;
   http: typeof http;
   inpay: typeof inpay;
+  leads: typeof leads;
   listings: typeof listings;
+  maintenance: typeof maintenance;
   messages: typeof messages;
   notifications: typeof notifications;
   payments: typeof payments;
   plans: typeof plans;
   push: typeof push;
+  reels: typeof reels;
   reports: typeof reports;
   reviews: typeof reviews;
   saved: typeof saved;
   seed: typeof seed;
   settings: typeof settings;
   stats: typeof stats;
+  trust: typeof trust;
   users: typeof users;
 }>;
 

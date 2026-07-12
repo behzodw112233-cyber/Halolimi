@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { mutation, query, type MutationCtx } from './_generated/server';
 import { internal } from './_generated/api';
+import { createForUser } from './notifications';
 import type { Id } from './_generated/dataModel';
 
 /** Clamp a raw star value into the valid 1..5 range. */
@@ -60,6 +61,14 @@ export const create = mutation({
       createdAt: Date.now(),
     });
     await recomputeSellerRating(ctx, sellerId);
+    await createForUser(ctx, {
+      userId: sellerId,
+      icon: 'star-outline',
+      title: 'Yangi sharh',
+      body: `${authorName} sizga ${stars} yulduz berdi.`,
+      targetType: 'review',
+      targetId: sellerId,
+    });
     await ctx.scheduler.runAfter(0, internal.push.send, {
       userId: sellerId,
       title: 'Yangi sharh ⭐',

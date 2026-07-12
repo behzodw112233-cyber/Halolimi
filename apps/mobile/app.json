@@ -6,16 +6,18 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "halolmia",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "platforms": [
       "ios",
-      "android"
+      "android",
+      "web"
     ],
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Halolmi videoqoʻngʻiroqlar uchun kameradan foydalanadi.",
-        "NSMicrophoneUsageDescription": "Halolmi qoʻngʻiroqlar uchun mikrofondan foydalanadi."
+        "NSMicrophoneUsageDescription": "Halolmi qoʻngʻiroqlar uchun mikrofondan foydalanadi.",
+        "NSLocationWhenInUseUsageDescription": "Halolmi yaqin atrofdagi hayvonlarni koʻrsatish va eʼlon manzilini aniqlash uchun joylashuvdan foydalanadi."
       }
     },
     "android": {
@@ -35,7 +37,9 @@
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.WAKE_LOCK",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.behzodosteam.halomi"
     },
@@ -77,7 +81,19 @@
           }
         }
       ],
-      "expo-video"
+      "expo-video",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Halolmi yaqin atrofdagi hayvonlarni koʻrsatish va eʼlon manzilini aniqlash uchun joylashuvdan foydalanadi."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Halolmi ovozli xabar yozish uchun mikrofondan foydalanadi."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,5 +1,7 @@
 import { v } from 'convex/values';
 import { mutation, query, type MutationCtx } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import { createForUser } from './notifications';
 
 // A login handshake is only valid for a few minutes.
 const SESSION_TTL_MS = 5 * 60 * 1000;
@@ -24,6 +26,56 @@ async function getOrCreateUser(ctx: MutationCtx, phone: string, name?: string) {
     joined: new Date().toLocaleDateString('ru-RU'),
     status: 'active',
   });
+}
+
+/**
+ * Attach Telegram identity + mark the seller verified.
+ * Phone must come from Telegram's contact share (bot enforces own-contact).
+ * Reassigns telegramId if it was linked to another user.
+ */
+async function markTelegramVerified(
+  ctx: MutationCtx,
+  args: { phone: string; name?: string; telegramId: string }
+): Promise<Id<'users'>> {
+  const phone = normalizePhone(args.phone);
+  const userId = await getOrCreateUser(ctx, phone, args.name);
+  const now = Date.now();
+
+  // One Telegram account → one Convex user. Detach from any previous row.
+  const previous = await ctx.db
+    .query('users')
+    .withIndex('by_telegram', (q) => q.eq('telegramId', args.telegramId))
+    .first();
+  if (previous && previous._id !== userId) {
+    await ctx.db.patch(previous._id, {
+      telegramId: undefined,
+      phoneVerifiedAt: undefined,
+      verifiedAt: undefined,
+    });
+  }
+
+  const user = await ctx.db.get(userId);
+  // Legacy users already had telegramId from an earlier contact share.
+  const alreadyVerified = !!(user?.verifiedAt || user?.telegramId);
+
+  await ctx.db.patch(userId, {
+    telegramId: args.telegramId,
+    phoneVerifiedAt: user?.phoneVerifiedAt ?? now,
+    verifiedAt: user?.verifiedAt ?? now,
+  });
+
+  // First-time verification → inbox notice so the seller sees the badge payoff.
+  if (!alreadyVerified) {
+    await createForUser(ctx, {
+      userId,
+      icon: 'shield-checkmark',
+      title: 'Sotuvchi tasdiqlandi',
+      body: 'Telegram va telefon raqamingiz mos keldi. Endi eʼlonlaringizda «Tasdiqlangan sotuvchi» belgisi koʻrinadi.',
+      targetType: 'profile',
+    });
+  }
+
+  return userId;
 }
 
 /** App: open a pending login handshake for a freshly generated token. */
@@ -75,8 +127,10 @@ export const verify = mutation({
     telegramId: v.optional(v.string()),
   },
   handler: async (ctx, { token, phone, name, telegramId }) => {
-    const userId = await getOrCreateUser(ctx, normalizePhone(phone), name);
-    if (telegramId) await ctx.db.patch(userId, { telegramId });
+    if (!telegramId) {
+      throw new Error('Telegram ID majburiy');
+    }
+    const userId = await markTelegramVerified(ctx, { phone, name, telegramId });
     const existing = await ctx.db
       .query('authSessions')
       .withIndex('by_token', (q) => q.eq('token', token))
@@ -99,9 +153,7 @@ export const verify = mutation({
 export const linkBot = mutation({
   args: { telegramId: v.string(), phone: v.string(), name: v.optional(v.string()) },
   handler: async (ctx, { telegramId, phone, name }) => {
-    const userId = await getOrCreateUser(ctx, normalizePhone(phone), name);
-    await ctx.db.patch(userId, { telegramId });
-    return userId;
+    return await markTelegramVerified(ctx, { phone, name, telegramId });
   },
 });
 
@@ -129,6 +181,7 @@ export const botProfile = query({
       name: user.name,
       phone: user.phone,
       balance: user.balance ?? 0,
+      verified: !!(user.verifiedAt || user.telegramId),
       savedCount: saved.length,
       listingCount: listings.length,
       activeListingCount: listings.filter((l) => l.status === 'active').length,

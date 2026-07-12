@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useState } from 'react';
 import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../components/app-text';
@@ -17,6 +18,7 @@ type Category = { slug: string; name: string; emoji: string };
 export default function Sell() {
   const router = useRouter();
   const categories = useQuery(api.categories.list) ?? [];
+  const [mode, setMode] = useState<'choose' | 'listing'>('choose');
 
   const select = (slug: string) => {
     if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
@@ -33,7 +35,7 @@ export default function Sell() {
         {/* Back */}
         <View className="h-12 justify-center px-4">
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => (mode === 'listing' ? setMode('choose') : router.back())}
             hitSlop={12}
             className="h-9 w-9 items-center justify-center rounded-full"
             style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
@@ -47,9 +49,35 @@ export default function Sell() {
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 16 }}
         >
           <AppText className="mb-6 mt-2 font-display text-4xl text-foreground">
-            Nima sotyapsiz?
+            {mode === 'choose' ? 'Nima joylaysiz?' : 'Nima sotyapsiz?'}
           </AppText>
 
+          {mode === 'choose' ? (
+            <View className="gap-3">
+              <PostTypeCard
+                icon="images-outline"
+                title="Oddiy e'lon"
+                body="Rasm, narx, vazn va tavsif bilan hozirgi e'lon oqimi"
+                action="E'lon qo'shish"
+                onPress={() => {
+                  if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
+                  setMode('listing');
+                }}
+              />
+              <PostTypeCard
+                icon="videocam-outline"
+                title="Video e'lon"
+                body="Hayvonni kamerada oling yoki galereyadan video tanlang"
+                action="Video qo'shish"
+                accent
+                onPress={() => {
+                  if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
+                  router.push('/video-create' as never);
+                }}
+              />
+            </View>
+          ) : (
+            <>
           {/* Featured (full width) */}
           <View className="gap-3">
             {featured.map((c) => (
@@ -65,6 +93,8 @@ export default function Sell() {
               </View>
             ))}
           </View>
+            </>
+          )}
         </ScrollView>
 
         {/* Footer */}
@@ -79,6 +109,53 @@ export default function Sell() {
         </View>
       </SafeAreaView>
     </View>
+  );
+}
+
+function PostTypeCard({
+  icon,
+  title,
+  body,
+  action,
+  accent,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  body: string;
+  action: string;
+  accent?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="overflow-hidden rounded-2xl bg-surface-secondary p-5 active:opacity-85"
+      style={{ minHeight: 154, backgroundColor: accent ? BRAND_BLUE : undefined }}
+    >
+      <View className="flex-row items-start">
+        <View
+          className="h-12 w-12 items-center justify-center rounded-2xl"
+          style={{ backgroundColor: accent ? '#fff' : BRAND_BLUE + '18' }}
+        >
+          <Ionicons name={icon} size={25} color={accent ? BRAND_BLUE : BRAND_BLUE} />
+        </View>
+        <View className="ml-4 flex-1">
+          <AppText className={`font-bold text-2xl ${accent ? 'text-white' : 'text-foreground'}`}>
+            {title}
+          </AppText>
+          <AppText className={`mt-1 text-base leading-6 ${accent ? 'text-white/80' : 'text-muted'}`}>
+            {body}
+          </AppText>
+        </View>
+      </View>
+      <View className="mt-5 flex-row items-center justify-between">
+        <AppText className={`font-semibold text-base ${accent ? 'text-white' : ''}`} style={!accent ? { color: BRAND_BLUE } : undefined}>
+          {action}
+        </AppText>
+        <Ionicons name="arrow-forward" size={22} color={accent ? '#fff' : BRAND_BLUE} />
+      </View>
+    </Pressable>
   );
 }
 

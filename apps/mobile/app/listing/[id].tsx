@@ -4,7 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import * as SecureStore from 'expo-secure-store';
+import { SkeletonGroup } from 'heroui-native';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -12,7 +14,9 @@ import {
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   Share,
   TextInput,
@@ -50,12 +54,37 @@ const REPORT_REASONS = [
   'Boshqa sabab',
 ];
 
+type LastAiSearch = {
+  text: string;
+  advice?: {
+    budgetMax?: number;
+    categories?: string[];
+    goal?: string;
+    summary?: string;
+  };
+};
+
+const LAST_AI_SEARCH_KEY = 'halolmi_last_ai_search';
+const RAISING_CATEGORIES = ['cattle', 'sheep', 'poultry', 'rabbits'];
+
+async function getStoredValue(key: string) {
+  if (Platform.OS === 'web') {
+    return (globalThis as { localStorage?: Storage }).localStorage?.getItem(key) ?? null;
+  }
+  return SecureStore.getItemAsync(key);
+}
+
+function numberFromPrice(value?: string) {
+  const digits = (value ?? '').replace(/[^\d]/g, '');
+  return digits ? Number(digits) : null;
+}
+
 export default function ListingDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const listingId = id as Id<'listings'>;
   const { userId, user } = useAuth();
-  const [now] = useState(() => Math.floor(Date.now() / 60_000) * 60_000);
+  const [now, setNow] = useState(() => Date.now());
   const listing = useQuery(api.listings.get, { id: listingId, now });
   const related = useQuery(api.listings.related, { id: listingId }) ?? [];
   const favorites = useQuery(api.saved.countFor, { listingId }) ?? 0;
@@ -72,6 +101,8 @@ export default function ListingDetail() {
   const [stars, setStars] = useState(5);
   const [reviewText, setReviewText] = useState('');
   const [photoIndex, setPhotoIndex] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastAiSearch, setLastAiSearch] = useState<LastAiSearch | null>(null);
 
   // Count only fresh local views so back-and-forth navigation doesn't spam writes.
   useEffect(() => {
@@ -82,9 +113,49 @@ export default function ListingDetail() {
       .catch(() => {});
   }, [listingId, incrementViews]);
 
+  useEffect(() => {
+    getStoredValue(LAST_AI_SEARCH_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        setLastAiSearch(JSON.parse(raw) as LastAiSearch);
+      })
+      .catch(() => {});
+  }, []);
+
+  const aiFit = useMemo(() => {
+    if (!listing || !lastAiSearch?.advice) return null;
+    const advice = lastAiSearch.advice;
+    const wanted = advice.categories ?? [];
+    const price = numberFromPrice(listing.price);
+    const reasons = [
+      wanted.length === 0 || wanted.includes(listing.category) ? 'Turiga mos' : null,
+      advice.budgetMax !== undefined && price !== null && price <= advice.budgetMax ? 'Budjetga mos' : null,
+      advice.goal === 'raise_and_resell' && RAISING_CATEGORIES.includes(listing.category) ? 'Boqishga mos' : null,
+      listing.photoUrls?.length ? 'Rasmi bor' : null,
+      listing.sellerTrust?.verified ? 'Sotuvchi ishonchli' : null,
+    ].filter((x): x is string => !!x);
+    const warnings = [
+      advice.budgetMax !== undefined && price !== null && price > advice.budgetMax ? 'Budjetdan yuqori' : null,
+      wanted.length > 0 && !wanted.includes(listing.category) ? 'Turi so‘rovga to‘liq mos emas' : null,
+    ].filter((x): x is string => !!x);
+    const score = reasons.length - warnings.length;
+    return {
+      title: score >= 3 ? 'Sizga mos ko‘rinadi' : score >= 1 ? 'Yomon emas, tekshirib ko‘ring' : 'Ehtiyotkorlik kerak',
+      reasons,
+      warnings,
+      text: lastAiSearch.text,
+    };
+  }, [listing, lastAiSearch]);
+
   const saved = isSaved(listingId);
   const onToggleSave = () => {
     if (!toggleSave(listingId)) router.push('/login');
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    setNow(Date.now());
+    setTimeout(() => setRefreshing(false), 700);
   };
 
   const openChat = async (prefill?: string) => {
@@ -181,11 +252,7 @@ export default function ListingDetail() {
   };
 
   if (!listing) {
-    return (
-      <View className="flex-1 items-center justify-center bg-background">
-        <AppText className="text-muted">Yuklanmoqda...</AppText>
-      </View>
-    );
+    return <ListingDetailSkeleton />;
   }
 
   const photos = listing.photoUrls ?? [];
@@ -215,7 +282,19 @@ export default function ListingDetail() {
           </Pressable>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 90 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={BRAND_BLUE}
+              colors={[BRAND_BLUE]}
+              progressBackgroundColor="#fff"
+            />
+          }
+        >
           {/* Hero image pager */}
           <View className="bg-surface-secondary" style={{ height: 260 }}>
             {photos.length > 0 ? (
@@ -260,6 +339,47 @@ export default function ListingDetail() {
           {listing.priceIntel && (
             <View className="px-4">
               <PriceIntelCard intel={listing.priceIntel} />
+            </View>
+          )}
+
+          {aiFit && (
+            <View className="mx-4 mt-4 overflow-hidden rounded-2xl bg-surface">
+              <View className="flex-row items-center px-4 pt-4">
+                <View className="h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE + '18' }}>
+                  <Ionicons name="sparkles" size={18} color={BRAND_BLUE} />
+                </View>
+                <View className="ml-3 flex-1">
+                  <AppText className="font-bold text-base text-foreground">Bu menga mosmi?</AppText>
+                  <AppText className="text-sm text-muted" numberOfLines={1}>{aiFit.text}</AppText>
+                </View>
+              </View>
+              <View className="px-4 pb-4 pt-3">
+                <AppText className="font-bold text-lg text-foreground">{aiFit.title}</AppText>
+                {!!aiFit.reasons.length && (
+                  <View className="mt-2 flex-row flex-wrap gap-2">
+                    {aiFit.reasons.slice(0, 4).map((reason) => (
+                      <View key={reason} className="flex-row items-center rounded-full bg-blue-50 px-3 py-1.5">
+                        <Ionicons name="checkmark-circle" size={14} color={BRAND_BLUE} />
+                        <AppText className="ml-1.5 text-[12px] font-bold" style={{ color: BRAND_BLUE }}>
+                          {reason}
+                        </AppText>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                {!!aiFit.warnings.length && (
+                  <View className="mt-2 flex-row flex-wrap gap-2">
+                    {aiFit.warnings.map((warning) => (
+                      <View key={warning} className="flex-row items-center rounded-full bg-amber-50 px-3 py-1.5">
+                        <Ionicons name="alert-circle" size={14} color="#D97706" />
+                        <AppText className="ml-1.5 text-[12px] font-bold" style={{ color: '#D97706' }}>
+                          {warning}
+                        </AppText>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
             </View>
           )}
 
@@ -553,4 +673,75 @@ function PriceIntelCard({ intel }: { intel: PriceIntel }) {
 function formatIntelPrice(value: number, currency: string) {
   const formatted = Math.round(value).toLocaleString('ru-RU');
   return currency === 'usd' ? `${formatted} y.e.` : `${formatted} soʼm`;
+}
+
+function ListingDetailSkeleton() {
+  return (
+    <View className="flex-1 bg-background">
+      <SafeAreaView className="flex-1" edges={['top']}>
+        <SkeletonGroup isLoading isSkeletonOnly variant="shimmer">
+          <View className="h-12 flex-row items-center px-3">
+            <SkeletonGroup.Item className="h-9 w-9 rounded-full" />
+            <SkeletonGroup.Item className="ml-2 h-6 flex-1 rounded-md" />
+            <SkeletonGroup.Item className="ml-3 h-9 w-9 rounded-full" />
+            <SkeletonGroup.Item className="ml-2 h-9 w-9 rounded-full" />
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 90 }}>
+            <SkeletonGroup.Item className="h-[260px] w-full" />
+
+            <View className="px-4 pt-4">
+              <SkeletonGroup.Item className="h-9 w-48 rounded-lg" />
+              <SkeletonGroup.Item className="mt-2 h-5 w-4/5 rounded-md" />
+              <View className="mt-3 flex-row gap-4">
+                <SkeletonGroup.Item className="h-4 w-20 rounded-md" />
+                <SkeletonGroup.Item className="h-4 w-24 rounded-md" />
+              </View>
+              <SkeletonGroup.Item className="mt-4 h-24 w-full rounded-2xl" />
+            </View>
+
+            <View className="mt-4 px-4">
+              {[0, 1, 2, 3].map((i) => (
+                <View key={i} className="flex-row justify-between border-b border-border py-3">
+                  <SkeletonGroup.Item className="h-5 w-24 rounded-md" />
+                  <SkeletonGroup.Item className="h-5 w-28 rounded-md" />
+                </View>
+              ))}
+            </View>
+
+            <View className="mx-4 mt-4 flex-row items-center rounded-2xl bg-surface-secondary p-3">
+              <SkeletonGroup.Item className="h-11 w-11 rounded-full" />
+              <View className="ml-3 flex-1">
+                <SkeletonGroup.Item className="h-5 w-36 rounded-md" />
+                <SkeletonGroup.Item className="mt-2 h-4 w-44 rounded-md" />
+                <View className="mt-2 flex-row flex-wrap gap-2">
+                  <SkeletonGroup.Item className="h-6 w-28 rounded-full" />
+                  <SkeletonGroup.Item className="h-6 w-24 rounded-full" />
+                </View>
+              </View>
+              <SkeletonGroup.Item className="h-6 w-6 rounded-md" />
+            </View>
+
+            <View className="mx-4 mt-3">
+              <SkeletonGroup.Item className="h-20 w-full rounded-2xl" />
+            </View>
+            <View className="mx-4 mt-3">
+              <SkeletonGroup.Item className="h-24 w-full rounded-2xl" />
+            </View>
+            <View className="mx-4 mt-4">
+              <SkeletonGroup.Item className="h-14 w-full rounded-2xl" />
+            </View>
+            <View className="mx-4 mt-4">
+              <SkeletonGroup.Item className="h-28 w-full rounded-2xl" />
+            </View>
+          </ScrollView>
+
+          <View className="flex-row gap-3 border-t border-border px-4 py-2.5">
+            <SkeletonGroup.Item className="h-12 flex-1 rounded-xl" />
+            <SkeletonGroup.Item className="h-12 flex-[1.4] rounded-xl" />
+          </View>
+        </SkeletonGroup>
+      </SafeAreaView>
+    </View>
+  );
 }

@@ -4,8 +4,9 @@ import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { useMutation, useQuery } from 'convex/react';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import type { ComponentProps } from 'react';
 import { useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Alert, Linking, Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
@@ -46,6 +47,7 @@ export default function SellerProfile() {
 
   const profile = useQuery(api.users.sellerProfile, { id: sellerId, now });
   const listings = useQuery(api.listings.byOwner, { ownerId: sellerId }) ?? [];
+  const reels = useQuery(api.reels.bySeller, { sellerId, userId: userId ?? undefined, limit: 8 }) ?? [];
   const reviews = useQuery(api.reviews.forSeller, { sellerId }) ?? [];
   const following = useQuery(
     api.follows.isFollowing,
@@ -55,14 +57,20 @@ export default function SellerProfile() {
   const toggleFollow = useMutation(api.follows.toggle);
   const submitReview = useMutation(api.reviews.create);
   const reportSeller = useMutation(api.reports.reportSeller);
+  const openThread = useMutation(api.messages.openThread);
 
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [contacting, setContacting] = useState(false);
   const [stars, setStars] = useState(5);
   const [text, setText] = useState('');
 
   const isSelf = userId === sellerId;
   const active = listings.filter((l) => l.status === 'active');
+  const featuredListings = active
+    .filter((l) => l.pinned || l.tier || (l.boostedUntil ?? 0) > Date.now())
+    .slice(0, 6);
+  const dealerFeatured = featuredListings.length > 0 ? featuredListings : active.slice(0, 6);
 
   const onFollow = () => {
     if (!userId) return router.push('/login');
@@ -102,6 +110,51 @@ export default function SellerProfile() {
       Alert.alert('Yuborildi', 'Sotuvchi bo‘yicha shikoyatingiz qabul qilindi.');
     } catch {
       Alert.alert('Xatolik', 'Shikoyat yuborilmadi. Qayta urinib ko‘ring.');
+    }
+  };
+
+  const openDealerVideo = () => {
+    const showcase = profile?.dealerShowcase;
+    if (!showcase?.videoUrl) return;
+    router.push({
+      pathname: '/dealer/[id]',
+      params: {
+        id: showcase._id,
+        video: showcase.videoUrl,
+        title: showcase.title,
+        dealer: showcase.dealer,
+      },
+    } as never);
+  };
+
+  const callDealer = () => {
+    const cleaned = profile?.phone?.replace(/[^\d+]/g, '');
+    if (cleaned) Linking.openURL(`tel:${cleaned}`).catch(() => {});
+  };
+
+  const openMap = () => {
+    if (profile?.dealerMapUrl) Linking.openURL(profile.dealerMapUrl).catch(() => {});
+  };
+
+  const messageDealer = async () => {
+    if (!userId) return router.push('/login');
+    const listing = active[0];
+    if (!listing || contacting) return;
+    setContacting(true);
+    try {
+      const threadId = await openThread({ meId: userId, listingId: listing._id });
+      router.push({
+        pathname: '/chat/[id]',
+        params: {
+          id: threadId,
+          name: profile?.name ?? 'Sotuvchi',
+          sellerId,
+        },
+      });
+    } catch {
+      Alert.alert('Xatolik', 'Suhbatni ochib boÊ»lmadi.');
+    } finally {
+      setContacting(false);
     }
   };
 
@@ -184,6 +237,82 @@ export default function SellerProfile() {
             <Stat label="Obunachilar" value={profile.followerCount} />
           </View>
 
+          {profile.isDealer && (
+            <View className="mx-4 mt-4 overflow-hidden rounded-2xl bg-surface-secondary">
+              <Pressable
+                onPress={openDealerVideo}
+                disabled={!profile.dealerShowcase?.videoUrl}
+                className="h-44 overflow-hidden bg-neutral-950 active:opacity-90"
+              >
+                {profile.dealerShowcase?.thumbUrl ? (
+                  <Image
+                    source={{ uri: profile.dealerShowcase.thumbUrl }}
+                    contentFit="cover"
+                    style={{ width: '100%', height: '100%' }}
+                  />
+                ) : (
+                  <View className="h-full w-full items-center justify-center bg-neutral-900">
+                    <Ionicons name="business" size={34} color="#fff" />
+                  </View>
+                )}
+                <View className="absolute left-3 top-3">
+                  <DealerBadge />
+                </View>
+                {profile.dealerShowcase?.videoUrl && (
+                  <View className="absolute inset-0 items-center justify-center">
+                    <View className="h-14 w-14 items-center justify-center rounded-full bg-black/55">
+                      <Ionicons name="play" size={28} color="#fff" style={{ marginLeft: 3 }} />
+                    </View>
+                  </View>
+                )}
+                <View className="absolute bottom-0 left-0 right-0 p-3" style={{ backgroundColor: 'rgba(0,0,0,0.58)' }}>
+                  <AppText className="font-bold text-lg text-white" numberOfLines={1}>
+                    {profile.dealerShowcase?.title ?? 'Rasmiy diler'}
+                  </AppText>
+                  <AppText className="text-sm text-white/80" numberOfLines={1}>
+                    {profile.dealerShowcase?.dealer ?? profile.name}
+                  </AppText>
+                </View>
+              </Pressable>
+
+              <View className="gap-3 p-4">
+                <DealerInfoRow icon="location-outline" text={profile.dealerAddress || 'Manzil tez orada'} />
+                <DealerInfoRow icon="time-outline" text={profile.dealerHours || 'Ish vaqti tez orada'} />
+                {!!profile.dealerMapUrl && (
+                  <Pressable onPress={openMap} className="flex-row items-center active:opacity-70">
+                    <Ionicons name="map-outline" size={18} color={BRAND_BLUE} />
+                    <AppText className="ml-2 font-semibold text-base" style={{ color: BRAND_BLUE }}>
+                      Xaritada koÊ»rish
+                    </AppText>
+                  </Pressable>
+                )}
+                {!isSelf && (
+                  <View className="mt-1 flex-row gap-2">
+                    <Pressable
+                      onPress={callDealer}
+                      className="h-12 flex-1 flex-row items-center justify-center rounded-xl active:opacity-90"
+                      style={{ backgroundColor: BRAND_BLUE }}
+                    >
+                      <Ionicons name="call-outline" size={19} color="#fff" />
+                      <AppText className="ml-2 font-semibold text-base text-white">QoÊ»ngÊ»iroq</AppText>
+                    </Pressable>
+                    <Pressable
+                      onPress={messageDealer}
+                      disabled={active.length === 0 || contacting}
+                      className="h-12 flex-1 flex-row items-center justify-center rounded-xl active:opacity-90"
+                      style={{ backgroundColor: active.length === 0 ? '#E5E7EB' : '#111827' }}
+                    >
+                      <Ionicons name="chatbubble-ellipses-outline" size={19} color={active.length === 0 ? '#9CA3AF' : '#fff'} />
+                      <AppText className="ml-2 font-semibold text-base" style={{ color: active.length === 0 ? '#9CA3AF' : '#fff' }}>
+                        {contacting ? 'Ochilyapti...' : 'Chat'}
+                      </AppText>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
           {/* Follow */}
           {!isSelf && (
             <>
@@ -214,6 +343,96 @@ export default function SellerProfile() {
                 </Pressable>
               </View>
             </>
+          )}
+
+          {/* Their videos */}
+          {reels.length > 0 && (
+            <View className="mt-6">
+              <View className="mb-2 flex-row items-center justify-between px-4">
+                <AppText className="font-bold text-lg text-foreground">Videolari</AppText>
+                <Pressable
+                  onPress={() => router.push({ pathname: '/reels', params: { start: reels[0]._id, sellerId: id } } as never)}
+                  hitSlop={8}
+                  className="flex-row items-center active:opacity-70"
+                >
+                  <AppText className="font-medium text-base" style={{ color: BRAND_BLUE }}>
+                    {"Ko'rish"}
+                  </AppText>
+                  <Ionicons name="chevron-forward" size={18} color={BRAND_BLUE} />
+                </Pressable>
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+              >
+                {reels.map((r) => (
+                  <Pressable
+                    key={r._id}
+                    onPress={() => router.push({ pathname: '/reels', params: { start: r._id, sellerId: id } } as never)}
+                    className="overflow-hidden rounded-2xl bg-black active:opacity-90"
+                    style={{ width: 118, aspectRatio: 0.72 }}
+                  >
+                    {r.thumbUrl ? (
+                      <Image
+                        source={{ uri: r.thumbUrl }}
+                        contentFit="cover"
+                        style={{ position: 'absolute', width: '100%', height: '100%' }}
+                      />
+                    ) : (
+                      <View className="h-full w-full items-center justify-center bg-neutral-900">
+                        <Ionicons name="videocam" size={26} color="#fff" />
+                      </View>
+                    )}
+                    <View className="absolute right-2 top-2 h-7 w-7 items-center justify-center rounded-full bg-black/45">
+                      <Ionicons name="play" size={16} color="#fff" style={{ marginLeft: 2 }} />
+                    </View>
+                    <View className="absolute bottom-0 left-0 right-0 p-2" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
+                      <AppText className="font-semibold text-xs text-white" numberOfLines={2}>
+                        {r.price ?? r.title}
+                      </AppText>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {profile.isDealer && dealerFeatured.length > 0 && (
+            <View className="mt-6">
+              <View className="mb-2 flex-row items-center justify-between px-4">
+                <AppText className="font-bold text-lg text-foreground">Diler tanlaganlari</AppText>
+                <DealerBadge />
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+              >
+                {dealerFeatured.map((l) => (
+                  <Pressable
+                    key={l._id}
+                    onPress={() => router.push({ pathname: '/listing/[id]', params: { id: l._id } })}
+                    className="active:opacity-85"
+                    style={{ width: 154 }}
+                  >
+                    <View className="items-center justify-center overflow-hidden rounded-xl bg-surface-secondary" style={{ height: 108 }}>
+                      {l.photoUrls?.[0] ? (
+                        <Image source={{ uri: l.photoUrls[0] }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
+                      ) : (
+                        <Image source={CATEGORY_IMAGES[l.category]} contentFit="contain" style={{ width: '80%', height: '80%' }} />
+                      )}
+                    </View>
+                    <AppText className="mt-1.5 font-bold text-base text-foreground" numberOfLines={1}>
+                      {l.price}
+                    </AppText>
+                    <AppText className="text-sm text-muted" numberOfLines={1}>
+                      {l.title.split(',')[0]}
+                    </AppText>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
           )}
 
           {/* Their listings */}
@@ -339,6 +558,21 @@ function Stat({ label, value }: { label: string; value: number }) {
     <View className="flex-1 items-center">
       <AppText className="font-bold text-xl text-foreground">{value}</AppText>
       <AppText className="text-sm text-muted">{label}</AppText>
+    </View>
+  );
+}
+
+function DealerInfoRow({
+  icon,
+  text,
+}: {
+  icon: ComponentProps<typeof Ionicons>['name'];
+  text: string;
+}) {
+  return (
+    <View className="flex-row items-start">
+      <Ionicons name={icon} size={18} color="#6B7280" style={{ marginTop: 2 }} />
+      <AppText className="ml-2 flex-1 text-base leading-6 text-foreground">{text}</AppText>
     </View>
   );
 }

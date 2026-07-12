@@ -30,6 +30,26 @@ export const invoiceStatus = v.union(
 );
 export const reportStatus = v.union(v.literal('new'), v.literal('resolved'));
 export const paymentStatus = v.union(v.literal('success'), v.literal('pending'));
+export const reelStatus = v.union(
+  v.literal('processing'),
+  v.literal('ready'),
+  v.literal('rejected'),
+  v.literal('failed')
+);
+export const leadType = v.union(
+  v.literal('big_player'),
+  v.literal('farm_ranch'),
+  v.literal('potential_user'),
+  v.literal('dealer'),
+  v.literal('partner')
+);
+export const leadStatus = v.union(
+  v.literal('new'),
+  v.literal('contacted'),
+  v.literal('qualified'),
+  v.literal('won'),
+  v.literal('lost')
+);
 
 export default defineSchema({
   categories: defineTable({
@@ -55,6 +75,12 @@ export default defineSchema({
     sellerName: v.string(),
     ownerId: v.optional(v.id('users')),
     photos: v.optional(v.array(v.id('_storage'))),
+    // Location: viloyat + tuman (shown to users) plus coordinates for real
+    // distance ("Yaqin atrofda"). Coords come from GPS or the region centroid.
+    region: v.optional(v.string()),
+    district: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
     // Total detail-screen opens. Shown as the view counter; incremented on open.
     views: v.optional(v.number()),
     createdAt: v.number(),
@@ -122,10 +148,80 @@ export default defineSchema({
     .index('by_active', ['active'])
     .index('by_user', ['userId']),
 
+  reels: defineTable({
+    title: v.string(),
+    caption: v.optional(v.string()),
+    sellerId: v.optional(v.id('users')),
+    listingId: v.optional(v.id('listings')),
+    category: v.optional(v.string()),
+    city: v.optional(v.string()),
+    price: v.optional(v.string()),
+    // Current MVP can play Convex storage. Future HLS providers can write hlsUrl.
+    videoId: v.optional(v.id('_storage')),
+    thumbId: v.optional(v.id('_storage')),
+    hlsUrl: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
+    videoProvider: v.optional(
+      v.union(
+        v.literal('convex'),
+        v.literal('cloudflare'),
+        v.literal('mux'),
+        v.literal('bunny')
+      )
+    ),
+    providerVideoId: v.optional(v.string()),
+    duration: v.optional(v.number()),
+    status: reelStatus,
+    active: v.boolean(),
+    pinned: v.optional(v.boolean()),
+    order: v.number(),
+    views: v.number(),
+    watchMs: v.number(),
+    chatTaps: v.number(),
+    callTaps: v.number(),
+    createdAt: v.number(),
+  })
+    .index('by_active', ['active'])
+    .index('by_status', ['status'])
+    .index('by_seller', ['sellerId'])
+    .index('by_listing', ['listingId']),
+
+  reelLikes: defineTable({
+    userId: v.id('users'),
+    reelId: v.id('reels'),
+    createdAt: v.number(),
+  })
+    .index('by_user', ['userId'])
+    .index('by_reel', ['reelId'])
+    .index('by_user_reel', ['userId', 'reelId']),
+
+  reelSaves: defineTable({
+    userId: v.id('users'),
+    reelId: v.id('reels'),
+    createdAt: v.number(),
+  })
+    .index('by_user', ['userId'])
+    .index('by_reel', ['reelId'])
+    .index('by_user_reel', ['userId', 'reelId']),
+
+  reelComments: defineTable({
+    reelId: v.id('reels'),
+    userId: v.optional(v.id('users')),
+    userName: v.string(),
+    text: v.string(),
+    createdAt: v.number(),
+  }).index('by_reel', ['reelId']),
+
   users: defineTable({
     name: v.string(),
     phone: v.string(),
     telegramId: v.optional(v.string()),
+    // Set only when Telegram shared the user's own contact (Telegram-confirmed phone).
+    // Manual phone login alone does NOT set this.
+    phoneVerifiedAt: v.optional(v.number()),
+    // Set when Telegram account + Telegram-confirmed phone are both linked.
+    // This is the "Tasdiqlangan sotuvchi" badge signal.
+    verifiedAt: v.optional(v.number()),
     listings: v.number(),
     joined: v.string(),
     status: userStatus,
@@ -144,6 +240,10 @@ export default defineSchema({
     // Marked as an official dealer from the admin panel. Only dealers can have
     // showcase videos attached (see dealers table / dilerlar admin page).
     isDealer: v.optional(v.boolean()),
+    // Extra public profile fields for official dealers.
+    dealerAddress: v.optional(v.string()),
+    dealerHours: v.optional(v.string()),
+    dealerMapUrl: v.optional(v.string()),
   })
     .index('by_phone', ['phone'])
     .index('by_telegram', ['telegramId']),
@@ -177,6 +277,8 @@ export default defineSchema({
     createdAt: v.number(),
     // Phase 3: rich messages.
     imageId: v.optional(v.id('_storage')), // image attachment
+    audioId: v.optional(v.id('_storage')), // voice message
+    audioDuration: v.optional(v.number()), // voice message length, seconds
     replyToId: v.optional(v.id('messages')), // quoted message
     editedAt: v.optional(v.number()),
     deletedAt: v.optional(v.number()), // soft delete → "xabar oʻchirildi"
@@ -195,6 +297,37 @@ export default defineSchema({
     lastAt: v.number(),
     lastSenderId: v.optional(v.id('users')),
   }).index('by_key', ['key']),
+
+  // 1:1 video calls, signaled peer-to-peer over Convex (offer/answer SDP + ICE).
+  // No third-party video vendor — audio/video media flows directly device-to-device.
+  calls: defineTable({
+    threadId: v.string(),
+    callerId: v.id('users'),
+    calleeId: v.id('users'),
+    callerName: v.string(),
+    calleeName: v.string(),
+    offer: v.string(),
+    answer: v.optional(v.string()),
+    status: v.union(
+      v.literal('ringing'),
+      v.literal('accepted'),
+      v.literal('declined'),
+      v.literal('ended'),
+      v.literal('missed')
+    ),
+    createdAt: v.number(),
+    endedAt: v.optional(v.number()),
+  })
+    .index('by_callee', ['calleeId'])
+    .index('by_caller', ['callerId']),
+
+  // ICE candidates trickled by each side while a call is connecting.
+  callCandidates: defineTable({
+    callId: v.id('calls'),
+    senderId: v.id('users'),
+    candidate: v.string(),
+    createdAt: v.number(),
+  }).index('by_call', ['callId']),
 
   // Per-user view of a thread: unread count, read cursor, typing signal, and the
   // display name of the counterpart from this member's perspective.
@@ -242,6 +375,19 @@ export default defineSchema({
     body: v.string(),
     createdAt: v.number(),
   }),
+
+  userNotifications: defineTable({
+    userId: v.id('users'),
+    icon: v.string(),
+    title: v.string(),
+    body: v.string(),
+    createdAt: v.number(),
+    readAt: v.optional(v.number()),
+    targetType: v.optional(v.string()),
+    targetId: v.optional(v.string()),
+  })
+    .index('by_user', ['userId'])
+    .index('by_user_read', ['userId', 'readAt']),
 
   // Expo push tokens, one row per device. A user can be signed in on several
   // devices, so we key by the token (unique) and index by user for fan-out.
@@ -291,6 +437,25 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index('by_kind', ['kind'])
+    .index('by_updated', ['updatedAt']),
+
+  leads: defineTable({
+    name: v.string(),
+    type: leadType,
+    status: leadStatus,
+    contactName: v.string(),
+    phone: v.string(),
+    region: v.string(),
+    category: v.string(),
+    source: v.string(),
+    estimatedValue: v.optional(v.number()),
+    owner: v.string(),
+    notes: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_type', ['type'])
+    .index('by_status', ['status'])
     .index('by_updated', ['updatedAt']),
 
   // inPAY payment invoices. Created pending when the app requests a top-up,

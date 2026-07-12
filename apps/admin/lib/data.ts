@@ -66,8 +66,10 @@ export const CHART_PALETTE = ['#0A6CFF', '#16A34A', '#F59E0B', '#8B5CF6', '#EF44
 export const METHOD_COLOR: Record<string, string> = {
   Payme: '#33CCCC',
   Click: '#0A6CFF',
+  Atmos: '#7C3AED',
   Uzcard: '#1E3A8A',
   inPAY: '#16A34A',
+  PayTech: '#111827',
 };
 
 // ---- Ads Manager (Meta-style) ----

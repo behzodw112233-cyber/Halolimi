@@ -1,9 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
+import { hasExpoVideo, useVideoPlayer, VideoView } from '../../lib/optional-native';
 
 /** Full-screen player for an official-dealer showcase video. */
 export default function DealerVideo() {
@@ -22,7 +22,19 @@ export default function DealerVideo() {
 
   return (
     <View className="flex-1 bg-black">
-      <VideoView player={player} style={{ flex: 1 }} contentFit="contain" nativeControls />
+      {hasExpoVideo ? (
+        <VideoView player={player} style={{ flex: 1 }} contentFit="contain" nativeControls />
+      ) : (
+        <View className="flex-1 items-center justify-center px-8">
+          <Ionicons name="videocam-off-outline" size={46} color="#fff" />
+          <AppText className="mt-4 text-center font-bold text-xl text-white">
+            Video moduli kerak
+          </AppText>
+          <AppText className="mt-2 text-center text-base leading-6 text-white/70">
+            Diler videosini koÊ»rish uchun ilovani qayta build qilib oÊ»rnating.
+          </AppText>
+        </View>
+      )}
 
       <Pressable
         onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home'))}

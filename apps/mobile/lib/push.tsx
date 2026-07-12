@@ -2,7 +2,7 @@ import { api } from '@halolmia/backend/convex/_generated/api';
 import { useMutation } from 'convex/react';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import { useAuth } from './auth';
@@ -21,7 +21,7 @@ Notifications.setNotificationHandler({
 /** Route to the right screen when the user taps a notification. */
 function handleTap(response: Notifications.NotificationResponse) {
   const data = response.notification.request.content.data as
-    | { type?: string; listingId?: string; sellerId?: string; threadId?: string }
+    | { type?: string; listingId?: string; sellerId?: string; threadId?: string; callId?: string }
     | undefined;
   if (!data) return;
   if (data.type === 'listing' && data.listingId) {
@@ -30,6 +30,8 @@ function handleTap(response: Notifications.NotificationResponse) {
     router.push({ pathname: '/seller/[id]', params: { id: String(data.sellerId) } });
   } else if (data.type === 'chat' && data.threadId) {
     router.push({ pathname: '/chat/[id]', params: { id: String(data.threadId) } });
+  } else if (data.type === 'call' && data.callId) {
+    router.push({ pathname: '/call/[id]', params: { id: String(data.callId), role: 'callee' } } as unknown as Href);
   }
 }
 
@@ -45,6 +47,7 @@ export function PushManager() {
 
   // Register (or re-register) whenever the signed-in user changes.
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     if (!userId) return;
     if (registeredFor.current === userId) return;
     let cancelled = false;
@@ -88,6 +91,7 @@ export function PushManager() {
   // Handle taps: both a cold start (app opened from a notification) and taps
   // while the app is running.
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     Notifications.getLastNotificationResponseAsync().then((response) => {
       if (response) handleTap(response);
     });

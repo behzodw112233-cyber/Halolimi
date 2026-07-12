@@ -20,6 +20,7 @@ import {
   Star,
   Users,
   Video,
+  UserRoundSearch,
   type LucideIcon,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -35,7 +36,9 @@ const NAV: NavItem[] = [
   { label: 'Boshqaruv paneli', icon: LayoutDashboard, href: '/' },
   { label: 'Eʼlonlar', icon: ClipboardList, href: '/elonlar' },
   { label: 'Feed boshqaruvi', icon: ListOrdered, href: '/feed' },
+  { label: 'Reels / Video bozor', icon: Video, href: '/reels' },
   { label: 'Plan', icon: Map, href: '/plan' },
+  { label: 'Leads', icon: UserRoundSearch, href: '/leads' },
   { label: 'Tekshiruv', icon: ShieldCheck, href: '/tekshiruv' },
   { label: 'Foydalanuvchilar', icon: Users, href: '/foydalanuvchilar' },
   { label: 'Kategoriyalar', icon: LayoutGrid, href: '/kategoriyalar' },

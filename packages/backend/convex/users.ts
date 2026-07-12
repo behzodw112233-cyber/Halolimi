@@ -1,43 +1,9 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { userStatus } from './schema';
+import { computeSellerTrust } from './trust';
 
-const ONLINE_MS = 3 * 60 * 1000;
-const RECENT_MS = 24 * 60 * 60 * 1000;
 const HEARTBEAT_WRITE_MS = 2 * 60 * 1000;
-
-function trustSummary({
-  phone,
-  telegramId,
-  rating,
-  ratingCount,
-  reportCount,
-  lastSeen,
-  now,
-}: {
-  phone?: string;
-  telegramId?: string;
-  rating: number;
-  ratingCount: number;
-  reportCount: number;
-  lastSeen?: number;
-  now: number;
-}) {
-  const phoneVerified = !!phone;
-  const telegramLinked = !!telegramId;
-  const activeRecently = !!lastSeen && now - lastSeen < RECENT_MS;
-  const goodReviews = ratingCount > 0 && rating >= 4;
-  const noReports = reportCount === 0;
-  return {
-    phoneVerified,
-    telegramLinked,
-    activeRecently,
-    noReports,
-    goodReviews,
-    verified: phoneVerified && telegramLinked && activeRecently && noReports && goodReviews,
-    reportCount,
-  };
-}
 
 export const list = query({
   args: {},
@@ -108,41 +74,60 @@ export const sellerProfile = query({
       .query('reports')
       .withIndex('by_seller', (q) => q.eq('sellerId', id))
       .collect();
-    const ratingCount = u.ratingCount ?? 0;
-    const rating = ratingCount ? (u.ratingSum ?? 0) / ratingCount : 0;
     const avatarUrl = u.avatar ? await ctx.storage.getUrl(u.avatar) : null;
     const now = nowArg ?? Date.now();
-    const trust = trustSummary({
-      phone: u.phone,
-      telegramId: u.telegramId,
-      rating,
-      ratingCount,
-      reportCount: reports.length,
-      lastSeen: u.lastSeen,
-      now,
-    });
+    const dealerRows = u.isDealer
+      ? await ctx.db
+          .query('dealers')
+          .withIndex('by_user', (q) => q.eq('userId', id))
+          .collect()
+      : [];
+    const dealerShowcase =
+      dealerRows
+        .filter((d) => d.active)
+        .sort((a, b) => a.order - b.order)[0] ??
+      dealerRows.sort((a, b) => b.createdAt - a.createdAt)[0] ??
+      null;
+    const dealerVideoUrl = dealerShowcase ? await ctx.storage.getUrl(dealerShowcase.videoId) : null;
+    const dealerThumbUrl = dealerShowcase?.thumbId
+      ? await ctx.storage.getUrl(dealerShowcase.thumbId)
+      : null;
+    const trust = computeSellerTrust(u, { reportCount: reports.length, now });
     return {
       _id: u._id,
       name: u.name,
       phone: u.phone,
       phoneVerified: trust.phoneVerified,
       telegramLinked: trust.telegramLinked,
-      isDealer: !!u.isDealer,
+      isDealer: trust.isDealer,
       activeRecently: trust.activeRecently,
       noReports: trust.noReports,
       goodReviews: trust.goodReviews,
       verified: trust.verified,
+      verifiedAt: u.verifiedAt,
       reportCount: trust.reportCount,
       bio: u.bio ?? '',
       joined: u.joined,
       avatarUrl,
-      rating,
-      ratingCount,
+      rating: trust.rating,
+      ratingCount: trust.ratingCount,
       activeCount: active,
       soldCount: sold,
       followerCount: followers.length,
       lastSeen: u.lastSeen,
-      online: !!u.lastSeen && now - u.lastSeen < ONLINE_MS,
+      online: trust.online,
+      dealerAddress: u.dealerAddress ?? '',
+      dealerHours: u.dealerHours ?? '',
+      dealerMapUrl: u.dealerMapUrl ?? '',
+      dealerShowcase: dealerShowcase
+        ? {
+            _id: dealerShowcase._id,
+            title: dealerShowcase.title,
+            dealer: dealerShowcase.dealer ?? u.name,
+            videoUrl: dealerVideoUrl,
+            thumbUrl: dealerThumbUrl,
+          }
+        : null,
     };
   },
 });
@@ -167,6 +152,23 @@ export const setStatus = mutation({
 export const setDealer = mutation({
   args: { id: v.id('users'), isDealer: v.boolean() },
   handler: (ctx, { id, isDealer }) => ctx.db.patch(id, { isDealer }),
+});
+
+/** Admin-managed public details for official dealer profiles. */
+export const updateDealerProfile = mutation({
+  args: {
+    id: v.id('users'),
+    dealerAddress: v.optional(v.string()),
+    dealerHours: v.optional(v.string()),
+    dealerMapUrl: v.optional(v.string()),
+  },
+  handler: async (ctx, { id, dealerAddress, dealerHours, dealerMapUrl }) => {
+    const patch: Record<string, unknown> = {};
+    if (dealerAddress !== undefined) patch.dealerAddress = dealerAddress.trim();
+    if (dealerHours !== undefined) patch.dealerHours = dealerHours.trim();
+    if (dealerMapUrl !== undefined) patch.dealerMapUrl = dealerMapUrl.trim();
+    await ctx.db.patch(id, patch);
+  },
 });
 
 export const remove = mutation({

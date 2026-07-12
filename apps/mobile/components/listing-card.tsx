@@ -16,6 +16,8 @@ export interface CardListing {
   photoUrls?: string[];
   photoCount?: number;
   promoted?: boolean;
+  /** Distance in km from the buyer (set when searching "Yaqin atrofda"). */
+  distanceKm?: number | null;
   sellerTrust?: {
     verified?: boolean;
     isDealer?: boolean;
@@ -139,6 +141,11 @@ export function ListingCard({
             <Ionicons name="location-outline" size={17} color="#EF4444" />
             <AppText className="ml-2 text-[15px] text-muted" numberOfLines={1}>
               {listing.city}
+              {typeof listing.distanceKm === 'number' && (
+                <AppText className="text-[15px]" style={{ color: BRAND_BLUE }}>
+                  {`  ·  ~${listing.distanceKm} km`}
+                </AppText>
+              )}
             </AppText>
           </View>
           {!!listing.sellerTrust?.ratingCount && (

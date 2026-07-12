@@ -1,12 +1,15 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Ionicons } from '@expo/vector-icons';
-import { useMutation, usePaginatedQuery, useQuery } from 'convex/react';
+import { useAction, useMutation, usePaginatedQuery, useQuery } from 'convex/react';
+import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
+import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, type Href } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { FlatList, Linking, Modal, Pressable, ScrollView, View } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Animated, Easing, FlatList, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { ListingCard } from '../../components/listing-card';
@@ -16,6 +19,16 @@ import { PROMOS, PROMO_IMAGES } from '../../constants/promos';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { useNotifications } from '../../lib/notifications';
+import {
+  AudioModule,
+  RecordingPresets,
+  hasExpoAudio,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+  useVideoPlayer,
+  VideoView,
+} from '../../lib/optional-native';
 import { useRecentlyViewed } from '../../lib/recently-viewed';
 import { useSaved } from '../../lib/saved';
 
@@ -24,7 +37,7 @@ const PROMO_FILTERS: Record<string, Record<string, string>> = {
   qurbonlik: { category: 'sheep' }, // qurbonlik hayvonlari = qoʻy/echki
   naslli: { category: 'cattle' }, // naslli mollar = zotli qoramol
   arzon: { priceMax: '5000000' }, // arzon = 5 mln soʻmgacha
-  yaqin: { city: 'Toshkent' }, // yaqin atrofda (hozircha Toshkent)
+  yaqin: { nearby: '1' }, // yaqin atrofda → GPS-based nearby search
 };
 
 /** One official-dealer showcase, resolved by api.dealers.list. */
@@ -38,6 +51,276 @@ type DealerAdData = {
   sellerName?: string | null;
   avatarUrl?: string | null;
 };
+
+type ReelPreview = {
+  _id: string;
+  title: string;
+  price?: string;
+  city?: string;
+  videoUrl?: string | null;
+  thumbUrl?: string | null;
+  sellerName?: string | null;
+};
+
+type AiAdvice = {
+  summary: string;
+  advice: string;
+  budgetMax?: number;
+  categories?: string[];
+  goal?: string;
+  timelineMonths?: number;
+  keywords?: string[];
+  confidence?: number;
+  chips?: string[];
+  followUps?: string[];
+  estimate?: { title?: string; items?: { label: string; value: string }[] };
+  provider?: string;
+};
+
+type SavedAiSearch = { text: string; summary?: string; savedAt: number };
+
+const AI_SEARCHES_KEY = 'halolmi_ai_searches';
+const LAST_AI_SEARCH_KEY = 'halolmi_last_ai_search';
+
+async function getStoredValue(key: string) {
+  if (Platform.OS === 'web') {
+    return (globalThis as { localStorage?: Storage }).localStorage?.getItem(key) ?? null;
+  }
+  return SecureStore.getItemAsync(key);
+}
+
+async function setStoredValue(key: string, value: string) {
+  if (Platform.OS === 'web') {
+    (globalThis as { localStorage?: Storage }).localStorage?.setItem(key, value);
+    return;
+  }
+  await SecureStore.setItemAsync(key, value);
+}
+
+async function readSavedAiSearches() {
+  const raw = await getStoredValue(AI_SEARCHES_KEY);
+  if (!raw) return [] as SavedAiSearch[];
+  try {
+    const parsed = JSON.parse(raw) as SavedAiSearch[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function thumbnailCandidates(url?: string | null) {
+  if (!url) return [];
+  if (url.includes('/thumbnails/thumbnail.jpg') && !url.includes('?')) {
+    return [url, `${url}?time=1s&height=360`, `${url}?time=2s&height=360`];
+  }
+  return [url];
+}
+
+function safePreviewCall(fn: () => void) {
+  try {
+    fn();
+  } catch {
+    // Preview players can be released while the feed recycles cells.
+  }
+}
+
+function VideoBozorPreview({
+  reel,
+  onPress,
+}: {
+  reel: ReelPreview | null;
+  onPress: () => void;
+}) {
+  const candidates = useMemo(() => thumbnailCandidates(reel?.thumbUrl), [reel?.thumbUrl]);
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const imageUrl = candidates[candidateIndex];
+  const showVideoFallback = !!reel?.videoUrl && !imageUrl;
+  const player = useVideoPlayer(showVideoFallback && reel?.videoUrl ? reel.videoUrl : '', (p) => {
+    p.loop = true;
+    p.muted = true;
+  });
+
+  useEffect(() => {
+    setCandidateIndex(0);
+  }, [reel?._id, reel?.thumbUrl]);
+
+  useEffect(() => {
+    if (!showVideoFallback) {
+      safePreviewCall(() => player.pause());
+      return;
+    }
+    safePreviewCall(() => player.play());
+    return () => {
+      safePreviewCall(() => player.pause());
+    };
+  }, [player, showVideoFallback]);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-1 overflow-hidden rounded-xl bg-white/12 active:opacity-85"
+      style={{ aspectRatio: 0.76 }}
+    >
+      {imageUrl ? (
+        <Image
+          source={{ uri: imageUrl }}
+          contentFit="cover"
+          onError={() => {
+            setCandidateIndex((i) => (i + 1 < candidates.length ? i + 1 : candidates.length));
+          }}
+          style={{ position: 'absolute', width: '100%', height: '100%' }}
+        />
+      ) : showVideoFallback ? (
+        <VideoView
+          player={player}
+          contentFit="cover"
+          nativeControls={false}
+          surfaceType="textureView"
+          style={{ position: 'absolute', width: '100%', height: '100%' }}
+        />
+      ) : (
+        <View className="h-full w-full items-center justify-center">
+          <Ionicons name="videocam" size={26} color="#fff" />
+        </View>
+      )}
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.72)']}
+        style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 54 }}
+      />
+      {reel ? (
+        <AppText
+          className="absolute bottom-2 left-2 right-2 font-semibold text-[12px] leading-4 text-white"
+          numberOfLines={2}
+        >
+          {reel.price ? `${reel.price} · ` : ''}{reel.title}
+        </AppText>
+      ) : null}
+      <View className="absolute right-2 top-2 h-7 w-7 items-center justify-center rounded-full bg-black/45">
+        <Ionicons name="play" size={16} color="#fff" style={{ marginLeft: 2 }} />
+      </View>
+    </Pressable>
+  );
+}
+
+function VideoBozorMedia({ reel }: { reel: ReelPreview | null }) {
+  const candidates = useMemo(() => thumbnailCandidates(reel?.thumbUrl), [reel?.thumbUrl]);
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const imageUrl = candidates[candidateIndex];
+  const showVideoFallback = !!reel?.videoUrl && !imageUrl;
+  const player = useVideoPlayer(showVideoFallback && reel?.videoUrl ? reel.videoUrl : '', (p) => {
+    p.loop = true;
+    p.muted = true;
+  });
+
+  useEffect(() => {
+    setCandidateIndex(0);
+  }, [reel?._id, reel?.thumbUrl]);
+
+  useEffect(() => {
+    if (!showVideoFallback) {
+      safePreviewCall(() => player.pause());
+      return;
+    }
+    safePreviewCall(() => player.play());
+    return () => {
+      safePreviewCall(() => player.pause());
+    };
+  }, [player, showVideoFallback]);
+
+  if (imageUrl) {
+    return (
+      <Image
+        source={{ uri: imageUrl }}
+        contentFit="cover"
+        onError={() => {
+          setCandidateIndex((i) => (i + 1 < candidates.length ? i + 1 : candidates.length));
+        }}
+        style={{ position: 'absolute', width: '100%', height: '100%' }}
+      />
+    );
+  }
+
+  if (showVideoFallback) {
+    return (
+      <VideoView
+        player={player}
+        contentFit="cover"
+        nativeControls={false}
+        surfaceType="textureView"
+        style={{ position: 'absolute', width: '100%', height: '100%' }}
+      />
+    );
+  }
+
+  return (
+    <View className="h-full w-full items-center justify-center">
+      <Ionicons name="videocam" size={26} color="#fff" />
+    </View>
+  );
+}
+
+function VideoBozorCard({ reels }: { reels: ReelPreview[] }) {
+  const router = useRouter();
+  const previews = reels.slice(0, 3);
+  const open = (start?: string) =>
+    router.push(start ? ({ pathname: '/reels', params: { start } } as never) : ('/reels' as never));
+
+  return (
+    <Pressable onPress={() => open()} className="mx-4 mt-5 overflow-hidden rounded-2xl bg-black active:opacity-95">
+      <LinearGradient
+        colors={['#111827', '#0A6CFF']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{ padding: 14 }}
+      >
+        <View className="mb-3 flex-row items-center justify-between">
+          <View className="flex-1 pr-3">
+            <View className="flex-row items-center">
+              <Ionicons name="play-circle" size={22} color="#fff" />
+              <AppText className="ml-2 font-bold text-lg text-white">Video bozor</AppText>
+            </View>
+            <AppText className="mt-0.5 text-sm leading-5 text-white/75">
+              {"Hayvonlarni video orqali ko'ring"}
+            </AppText>
+          </View>
+          <View className="rounded-full bg-white px-3 py-1.5">
+            <AppText className="font-bold text-sm" style={{ color: BRAND_BLUE }}>
+              {"Ko'rish"}
+            </AppText>
+          </View>
+        </View>
+
+        <View className="flex-row gap-2">
+          {(previews.length ? previews : [null, null, null]).map((reel, index) => (
+            <Pressable
+              key={reel?._id ?? index}
+              onPress={() => reel?._id && open(reel._id)}
+              className="flex-1 overflow-hidden rounded-xl bg-white/12 active:opacity-85"
+              style={{ aspectRatio: 0.76 }}
+            >
+              <VideoBozorMedia reel={reel} />
+              <LinearGradient
+                colors={['transparent', 'rgba(0,0,0,0.72)']}
+                style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 54 }}
+              />
+              {reel ? (
+                <AppText
+                  className="absolute bottom-2 left-2 right-2 font-semibold text-[12px] leading-4 text-white"
+                  numberOfLines={2}
+                >
+                  {reel.price ? `${reel.price} · ` : ''}{reel.title}
+                </AppText>
+              ) : null}
+              <View className="absolute right-2 top-2 h-7 w-7 items-center justify-center rounded-full bg-black/45">
+                <Ionicons name="play" size={16} color="#fff" style={{ marginLeft: 2 }} />
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      </LinearGradient>
+    </Pressable>
+  );
+}
 
 /**
  * A sponsored, Instagram-style dealer post rendered inline in the feed. Tapping
@@ -131,6 +414,18 @@ export default function Home() {
   const router = useRouter();
   const { userId } = useAuth();
   const openThread = useMutation(api.messages.openThread);
+  const askAi = useAction(api.aiAdvisor.ask);
+  const transcribeVoice = useAction(api.aiAdvisor.transcribe);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder, 200);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiText, setAiText] = useState('');
+  const [aiAdvice, setAiAdvice] = useState<AiAdvice | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const [savedAiSearches, setSavedAiSearches] = useState<SavedAiSearch[]>([]);
+  const aiPanelAnim = useRef(new Animated.Value(0)).current;
+  const aiResultAnim = useRef(new Animated.Value(0)).current;
 
   // Quick "ask the price" from a card → open (or reuse) the chat with the seller.
   const askPrice = async (l: { _id: Id<'listings'>; ownerId?: Id<'users'>; sellerName?: string }) => {
@@ -146,7 +441,8 @@ export default function Home() {
       /* ignore — user can retry from the listing page */
     }
   };
-  const [feedNow] = useState(() => Math.floor(Date.now() / 60_000) * 60_000);
+  const [feedNow, setFeedNow] = useState(() => Date.now());
+  const [refreshing, setRefreshing] = useState(false);
   const {
     results: listings,
     status: feedStatus,
@@ -154,7 +450,27 @@ export default function Home() {
   } = usePaginatedQuery(api.listings.listActivePage, { now: feedNow }, { initialNumItems: 12 });
   const ads = useQuery(api.ads.byPlacement, { placement: 'app' }) ?? [];
   const categories = useQuery(api.categories.list) ?? [];
-  const dealers = useQuery(api.dealers.list) ?? [];
+  const dealersQuery = useQuery(api.dealers.list);
+  const dealers = useMemo(() => dealersQuery ?? [], [dealersQuery]);
+  const reels = useQuery(api.reels.list, userId ? { userId, limit: 8 } : { limit: 8 }) ?? [];
+  const aiMatches =
+    useQuery(
+      api.listings.aiRecommend,
+      aiAdvice
+        ? {
+            categories: aiAdvice.categories,
+            budgetMax: aiAdvice.budgetMax,
+            q: aiText,
+            goal: aiAdvice.goal,
+            limit: 8,
+            now: feedNow,
+          }
+        : 'skip'
+    ) ?? [];
+  const aiBest = aiMatches[0];
+  const aiMore = aiMatches.slice(1, 4);
+  const aiCompare = aiMatches.slice(0, 3);
+  const aiSaved = !!aiText.trim() && savedAiSearches.some((s) => s.text.toLowerCase() === aiText.trim().toLowerCase());
   const homeCategories = categories.slice(0, 5);
   const { hasUnread } = useNotifications();
   const { isSaved, toggleSave, savedIds } = useSaved();
@@ -176,6 +492,129 @@ export default function Home() {
   const loadMoreListings = () => {
     if (feedStatus === 'CanLoadMore') loadMore(12);
   };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    setFeedNow(Date.now());
+  };
+
+  const runAiSearch = async (textArg = aiText) => {
+    const text = textArg.trim();
+    if (!text || aiLoading) {
+      setAiOpen(true);
+      return;
+    }
+    setAiOpen(true);
+    setAiLoading(true);
+    try {
+      const result = (await askAi({ text })) as AiAdvice;
+      setAiAdvice(result);
+      setStoredValue(
+        LAST_AI_SEARCH_KEY,
+        JSON.stringify({ text, advice: result, savedAt: Date.now() })
+      ).catch(() => {});
+      setFeedNow(Date.now());
+    } catch {
+      Alert.alert('AI qidiruv', "Hozircha javob kelmadi. Qayta urinib ko'ring.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const startVoice = async () => {
+    if (voiceLoading || recorderState.isRecording) return;
+    if (!hasExpoAudio) {
+      Alert.alert('Audio moduli kerak', "Ovozli qidiruv uchun ilovani qayta build qilib o'rnating.");
+      return;
+    }
+    const perm = await AudioModule.requestRecordingPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Ruxsat kerak', 'Ovozli qidiruv uchun mikrofonga ruxsat bering.');
+      return;
+    }
+    setAiOpen(true);
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+    await recorder.prepareToRecordAsync();
+    recorder.record();
+  };
+
+  const stopVoice = async () => {
+    if (!recorderState.isRecording || voiceLoading) return;
+    const durationSec = recorder.currentTime;
+    await recorder.stop();
+    const uri = recorder.uri;
+    if (!uri || durationSec < 1) return;
+    setVoiceLoading(true);
+    try {
+      const audioBase64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const { text } = (await transcribeVoice({
+        audioBase64,
+        mimeType: 'audio/m4a',
+      })) as { text: string };
+      const next = text.trim();
+      if (next) {
+        setAiText(next);
+        await runAiSearch(next);
+      }
+    } catch {
+      Alert.alert('Ovozli qidiruv', "Ovoz matnga aylantirilmadi. Yozib ko'ring.");
+    } finally {
+      setVoiceLoading(false);
+    }
+  };
+
+  const resetAi = () => {
+    setAiText('');
+    setAiAdvice(null);
+    setAiOpen(false);
+  };
+
+  const saveAiSearch = async () => {
+    const text = aiText.trim();
+    if (!text || !aiAdvice) return;
+    const next = [
+      { text, summary: aiAdvice.summary, savedAt: Date.now() },
+      ...savedAiSearches.filter((s) => s.text.toLowerCase() !== text.toLowerCase()),
+    ].slice(0, 8);
+    setSavedAiSearches(next);
+    await setStoredValue(AI_SEARCHES_KEY, JSON.stringify(next));
+  };
+
+  const addFollowUp = (value: string) => {
+    const next = `${aiText.trim()} ${value}`.trim();
+    setAiText(next);
+    runAiSearch(next);
+  };
+
+  useEffect(() => {
+    if (refreshing && feedStatus !== 'LoadingFirstPage') {
+      setRefreshing(false);
+    }
+  }, [feedStatus, refreshing]);
+
+  useEffect(() => {
+    readSavedAiSearches().then(setSavedAiSearches).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(aiPanelAnim, {
+      toValue: aiOpen ? 1 : 0,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [aiOpen, aiPanelAnim]);
+
+  useEffect(() => {
+    Animated.timing(aiResultAnim, {
+      toValue: aiAdvice ? 1 : 0,
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [aiAdvice, aiResultAnim]);
 
   // Interleave dealer showcases into the feed as sponsored posts: one dealer ad
   // after every 4 listings, cycling through the active dealers.
@@ -208,6 +647,15 @@ export default function Home() {
           contentContainerStyle={{ paddingBottom: 24 }}
           onEndReached={loadMoreListings}
           onEndReachedThreshold={0.7}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={BRAND_BLUE}
+              colors={[BRAND_BLUE]}
+              progressBackgroundColor="#fff"
+            />
+          }
           // Smoother scrolling: detach off-screen rows and render in smaller batches.
           removeClippedSubviews
           initialNumToRender={6}
@@ -238,13 +686,395 @@ export default function Home() {
                 </Pressable>
               </View>
 
-              <Pressable
-                onPress={() => router.push('/search' as never)}
-                className="mx-4 mb-4 h-12 flex-row items-center rounded-xl bg-surface-secondary px-4 active:opacity-80"
-              >
-                <Ionicons name="search" size={20} color="#9ca3af" />
-                <AppText className="ml-3 text-base text-muted">Hayvon qidirish</AppText>
-              </Pressable>
+              <View className="mx-4 mb-4 overflow-hidden rounded-[26px]">
+                <LinearGradient
+                  colors={['rgba(10,108,255,0.18)', 'rgba(255,255,255,0.88)', 'rgba(232,240,255,0.92)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{ padding: 1.2, borderRadius: 26 }}
+                >
+                  <View className="overflow-hidden rounded-[25px] bg-white/80">
+                    <BlurView intensity={38} tint="light" style={{ position: 'absolute', inset: 0 }} />
+                    <LinearGradient
+                      colors={['rgba(255,255,255,0.92)', 'rgba(246,249,255,0.78)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{ position: 'absolute', inset: 0 }}
+                    />
+                    <View className="flex-row items-center px-3 py-3">
+                      <LinearGradient
+                        colors={['#EAF2FF', '#FFFFFF']}
+                        style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Ionicons name="sparkles" size={18} color={BRAND_BLUE} />
+                      </LinearGradient>
+                      <View className="ml-3 flex-1" style={{ minWidth: 0 }}>
+                        <TextInput
+                          value={aiText}
+                          onChangeText={setAiText}
+                          onFocus={() => setAiOpen(true)}
+                          onSubmitEditing={() => runAiSearch()}
+                          returnKeyType="search"
+                          placeholder="Vaziyatingizni yozing..."
+                          placeholderTextColor="#94A3B8"
+                          className="min-h-10 py-1 text-[15px] text-foreground"
+                          style={{ fontFamily: 'Inter-SemiBold', lineHeight: 21, paddingRight: 6 }}
+                          multiline={aiOpen}
+                        />
+                      </View>
+                      <View
+                        className="ml-2 flex-row items-center rounded-full px-1 py-1"
+                        style={{
+                          backgroundColor: 'rgba(255,255,255,0.58)',
+                          borderWidth: 1,
+                          borderColor: 'rgba(255,255,255,0.85)',
+                        }}
+                      >
+                        {aiText || aiAdvice ? (
+                          <Pressable onPress={resetAi} hitSlop={8} className="h-8 w-8 items-center justify-center rounded-full active:opacity-75">
+                            <Ionicons name="close" size={16} color="#64748B" />
+                          </Pressable>
+                        ) : null}
+                        <Pressable
+                          onPress={recorderState.isRecording ? stopVoice : startVoice}
+                          disabled={voiceLoading || aiLoading}
+                          hitSlop={8}
+                          className="h-8 w-8 items-center justify-center rounded-full active:opacity-75"
+                          style={{ backgroundColor: recorderState.isRecording ? '#EF4444' : 'rgba(10,108,255,0.10)' }}
+                        >
+                          <Ionicons
+                            name={voiceLoading ? 'hourglass-outline' : recorderState.isRecording ? 'stop' : 'mic-outline'}
+                            size={17}
+                            color={recorderState.isRecording ? '#fff' : BRAND_BLUE}
+                          />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => runAiSearch()}
+                          disabled={aiLoading || !aiText.trim()}
+                          className="ml-1 h-8 w-8 items-center justify-center rounded-full active:opacity-80"
+                          style={{
+                            backgroundColor: aiText.trim() ? BRAND_BLUE : 'rgba(148,163,184,0.18)',
+                            shadowColor: BRAND_BLUE,
+                            shadowOpacity: aiText.trim() ? 0.2 : 0,
+                            shadowRadius: 7,
+                            shadowOffset: { width: 0, height: 3 },
+                          }}
+                        >
+                          <Ionicons
+                            name={aiLoading ? 'hourglass-outline' : 'arrow-up'}
+                            size={16}
+                            color={aiText.trim() ? '#fff' : '#94A3B8'}
+                          />
+                        </Pressable>
+                      </View>
+                    </View>
+
+                    {aiOpen ? (
+                      <Animated.View
+                        style={{
+                          opacity: aiPanelAnim,
+                          transform: [
+                            {
+                              translateY: aiPanelAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [-8, 0],
+                              }),
+                            },
+                            {
+                              scale: aiPanelAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: [0.985, 1],
+                              }),
+                            },
+                          ],
+                        }}
+                        className="px-3 pb-3"
+                      >
+                        <View className="h-px bg-white/70" />
+                        {recorderState.isRecording ? (
+                          <View className="mt-3 flex-row items-center rounded-2xl bg-red-50/90 px-3 py-2.5">
+                            <View className="mr-2 h-2.5 w-2.5 rounded-full bg-red-500" />
+                            <AppText className="flex-1 text-sm font-semibold text-red-600">
+                              Gapiring, tugatgach qizil tugmani bosing
+                            </AppText>
+                          </View>
+                        ) : null}
+                        {aiAdvice ? (
+                          <LinearGradient
+                            colors={['rgba(10,108,255,0.12)', 'rgba(255,255,255,0.72)']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={{ borderRadius: 20, padding: 13, marginTop: 12 }}
+                          >
+                            <View className="mb-1.5 flex-row items-center">
+                              <View className="h-7 w-7 items-center justify-center rounded-full bg-white">
+                                <Ionicons name="sparkles" size={15} color={BRAND_BLUE} />
+                              </View>
+                              <AppText className="ml-2 font-bold text-sm text-foreground">AI maslahati</AppText>
+                            </View>
+                            <AppText className="text-[14px] leading-5 text-foreground">{aiAdvice.advice}</AppText>
+                            {!!aiAdvice.chips?.length && (
+                              <View className="mt-3 flex-row flex-wrap gap-1.5">
+                                {aiAdvice.chips.slice(0, 4).map((chip) => (
+                                  <View key={chip} className="rounded-full bg-white/90 px-2.5 py-1.5">
+                                    <AppText className="text-[12px] font-bold" style={{ color: BRAND_BLUE }}>
+                                      {chip}
+                                    </AppText>
+                                  </View>
+                                ))}
+                              </View>
+                            )}
+                            {!!aiAdvice.estimate?.items?.length && (
+                              <View className="mt-3 flex-row gap-2">
+                                {aiAdvice.estimate.items.slice(0, 3).map((item) => (
+                                  <View key={item.label} className="flex-1 rounded-2xl bg-white/70 px-2.5 py-2">
+                                    <AppText className="text-[11px] font-semibold text-muted" numberOfLines={1}>
+                                      {item.label}
+                                    </AppText>
+                                    <AppText className="mt-0.5 text-[12px] font-bold text-foreground" numberOfLines={2}>
+                                      {item.value}
+                                    </AppText>
+                                  </View>
+                                ))}
+                              </View>
+                            )}
+                            {!!aiAdvice.followUps?.length && (
+                              <View className="mt-3">
+                                <AppText className="mb-1.5 text-[12px] font-bold text-muted">Aniqroq qilish</AppText>
+                                <View className="flex-row flex-wrap gap-1.5">
+                                  {aiAdvice.followUps.slice(0, 3).map((question) => (
+                                    <Pressable
+                                      key={question}
+                                      onPress={() => addFollowUp(question)}
+                                      className="rounded-full bg-white/85 px-2.5 py-1.5 active:opacity-80"
+                                    >
+                                      <AppText className="text-[12px] font-semibold text-foreground">{question}</AppText>
+                                    </Pressable>
+                                  ))}
+                                </View>
+                              </View>
+                            )}
+                          </LinearGradient>
+                        ) : (
+                          <View className="mt-3 flex-row flex-wrap gap-2">
+                            {[
+                              { text: '5 mln bor, boqib sotmoqchiman', icon: 'leaf-outline' },
+                              { text: "Yaqin atrofda arzon qo'y", icon: 'location-outline' },
+                              { text: 'Naslli buzoq kerak', icon: 'ribbon-outline' },
+                            ].map((sample) => (
+                              <Pressable
+                                key={sample.text}
+                                onPress={() => {
+                                  setAiText(sample.text);
+                                  runAiSearch(sample.text);
+                                }}
+                                className="flex-row items-center rounded-full bg-white/80 px-3 py-2 active:opacity-80"
+                              >
+                                <Ionicons name={sample.icon as keyof typeof Ionicons.glyphMap} size={14} color={BRAND_BLUE} />
+                                <AppText className="ml-1.5 text-[13px] font-semibold text-foreground">{sample.text}</AppText>
+                              </Pressable>
+                            ))}
+                            <Pressable
+                              onPress={recorderState.isRecording ? stopVoice : startVoice}
+                              className="flex-row items-center rounded-full bg-blue-50/90 px-3 py-2 active:opacity-80"
+                            >
+                              <Ionicons name="mic-outline" size={14} color={BRAND_BLUE} />
+                              <AppText className="ml-1.5 text-[13px] font-bold" style={{ color: BRAND_BLUE }}>
+                                Ovoz bilan ayting
+                              </AppText>
+                            </Pressable>
+                            {savedAiSearches.slice(0, 2).map((savedSearch) => (
+                              <Pressable
+                                key={savedSearch.savedAt}
+                                onPress={() => {
+                                  setAiText(savedSearch.text);
+                                  runAiSearch(savedSearch.text);
+                                }}
+                                className="flex-row items-center rounded-full bg-white/70 px-3 py-2 active:opacity-80"
+                              >
+                                <Ionicons name="bookmark" size={14} color="#64748B" />
+                                <AppText className="ml-1.5 text-[13px] font-semibold text-foreground" numberOfLines={1}>
+                                  {savedSearch.text}
+                                </AppText>
+                              </Pressable>
+                            ))}
+                          </View>
+                        )}
+                      </Animated.View>
+                    ) : null}
+                  </View>
+                </LinearGradient>
+              </View>
+
+              {aiAdvice && aiBest ? (
+                <Animated.View
+                  className="mb-2 px-4"
+                  style={{
+                    opacity: aiResultAnim,
+                    transform: [
+                      {
+                        translateY: aiResultAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [12, 0],
+                        }),
+                      },
+                    ],
+                  }}
+                >
+                  <View className="mb-2 flex-row items-center justify-between">
+                    <View className="flex-1 pr-2">
+                      <View className="mb-1 flex-row items-center">
+                        <LinearGradient
+                          colors={[BRAND_BLUE, '#60A5FA']}
+                          style={{ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <Ionicons name="sparkles" size={14} color="#fff" />
+                        </LinearGradient>
+                        <AppText className="ml-2 font-bold text-lg text-foreground">AI tavsiya qildi</AppText>
+                      </View>
+                      <AppText className="text-sm text-muted" numberOfLines={1}>
+                        {aiAdvice.summary}
+                      </AppText>
+                    </View>
+                    <Pressable
+                      onPress={saveAiSearch}
+                      disabled={aiSaved}
+                      className="flex-row items-center rounded-full bg-blue-50 px-3 py-1.5 active:opacity-80"
+                    >
+                      <Ionicons name={aiSaved ? 'bookmark' : 'bookmark-outline'} size={14} color={BRAND_BLUE} />
+                      <AppText className="ml-1 text-[12px] font-bold" style={{ color: BRAND_BLUE }}>
+                        {aiSaved ? 'Saqlandi' : 'Saqlash'}
+                      </AppText>
+                    </Pressable>
+                  </View>
+                  {!!aiBest.aiReasons?.length && (
+                    <View className="mb-2 flex-row flex-wrap gap-1.5">
+                      {aiBest.aiReasons.slice(0, 4).map((reason: string) => (
+                        <View key={reason} className="flex-row items-center rounded-full bg-white px-2.5 py-1.5">
+                          <Ionicons name="checkmark-circle" size={13} color={BRAND_BLUE} />
+                          <AppText className="ml-1 text-[12px] font-bold" style={{ color: BRAND_BLUE }}>
+                            {reason}
+                          </AppText>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  <ListingCard
+                    listing={{
+                      ...aiBest,
+                      promoted: !!aiBest.boostedUntil && aiBest.boostedUntil > feedNow,
+                    }}
+                    saved={isSaved(aiBest._id)}
+                    onToggleSave={() => {
+                      if (!toggleSave(aiBest._id)) router.push('/login');
+                    }}
+                    onMessage={
+                      aiBest.ownerId && aiBest.ownerId !== userId
+                        ? () => askPrice(aiBest)
+                        : undefined
+                    }
+                    onPress={() => router.push({ pathname: '/listing/[id]', params: { id: aiBest._id } })}
+                  />
+                </Animated.View>
+              ) : aiAdvice && aiLoading ? (
+                <View className="mx-4 mb-3 rounded-2xl bg-surface p-4">
+                  <AppText className="text-center text-sm font-medium text-muted">AI mos e'lonlarni saralamoqda...</AppText>
+                </View>
+              ) : null}
+
+              {aiCompare.length >= 2 && (
+                <View className="mx-4 mb-4 rounded-2xl bg-surface p-3">
+                  <View className="mb-2 flex-row items-center justify-between">
+                    <View className="flex-row items-center">
+                      <Ionicons name="git-compare-outline" size={17} color={BRAND_BLUE} />
+                      <AppText className="ml-1.5 font-bold text-base text-foreground">Tez solishtirish</AppText>
+                    </View>
+                    <AppText className="text-[12px] font-semibold text-muted">Top 3</AppText>
+                  </View>
+                  <View className="flex-row gap-2">
+                    {aiCompare.map((listing, index) => (
+                      <Pressable
+                        key={listing._id}
+                        onPress={() => router.push({ pathname: '/listing/[id]', params: { id: listing._id } })}
+                        className="flex-1 rounded-2xl bg-surface-secondary px-2.5 py-2.5 active:opacity-80"
+                      >
+                        <View className="mb-1 flex-row items-center">
+                          <View className="h-5 w-5 items-center justify-center rounded-full" style={{ backgroundColor: index === 0 ? BRAND_BLUE : '#E5E7EB' }}>
+                            <AppText className="text-[11px] font-bold" style={{ color: index === 0 ? '#fff' : '#64748B' }}>
+                              {index + 1}
+                            </AppText>
+                          </View>
+                          <AppText className="ml-1 flex-1 text-[11px] font-semibold text-muted" numberOfLines={1}>
+                            {listing.city}
+                          </AppText>
+                        </View>
+                        <AppText className="text-[13px] font-bold text-foreground" numberOfLines={1}>
+                          {listing.price}
+                        </AppText>
+                        <AppText className="mt-0.5 text-[12px] text-muted" numberOfLines={2}>
+                          {listing.aiReasons?.[0] ?? listing.category}
+                        </AppText>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              {aiMore.length > 0 && (
+                <View className="mb-4">
+                  <View className="mb-2 px-4">
+                    <AppText className="font-bold text-base text-foreground">Yana mos e'lonlar</AppText>
+                  </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+                  >
+                    {aiMore.map((listing) => (
+                      <Pressable
+                        key={listing._id}
+                        onPress={() => router.push({ pathname: '/listing/[id]', params: { id: listing._id } })}
+                        className="overflow-hidden rounded-2xl bg-surface active:opacity-90"
+                        style={{ width: 188 }}
+                      >
+                        <View className="bg-surface-secondary" style={{ height: 118 }}>
+                          <Image
+                            source={listing.photoUrls?.[0] ? { uri: listing.photoUrls[0] } : CATEGORY_IMAGES[listing.category]}
+                            contentFit={listing.photoUrls?.[0] ? 'cover' : 'contain'}
+                            style={
+                              listing.photoUrls?.[0]
+                                ? { width: '100%', height: '100%' }
+                                : { width: '84%', height: '84%', alignSelf: 'center', marginTop: 10 }
+                            }
+                          />
+                        </View>
+                        <View className="p-3">
+                          {!!listing.aiReasons?.length && (
+                            <View className="mb-2 flex-row flex-wrap gap-1">
+                              {listing.aiReasons.slice(0, 2).map((reason: string) => (
+                                <View key={reason} className="rounded-full bg-blue-50 px-2 py-1">
+                                  <AppText className="text-[10px] font-bold" style={{ color: BRAND_BLUE }}>
+                                    {reason}
+                                  </AppText>
+                                </View>
+                              ))}
+                            </View>
+                          )}
+                          <AppText className="font-bold text-base text-foreground" numberOfLines={1}>
+                            {listing.price}
+                          </AppText>
+                          <AppText className="mt-0.5 text-sm text-foreground" numberOfLines={1}>
+                            {listing.title}
+                          </AppText>
+                          <AppText className="mt-1 text-xs text-muted" numberOfLines={1}>
+                            {listing.city}
+                          </AppText>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
 
               <View className="flex-row flex-wrap justify-between px-4">
                 <Pressable
@@ -342,6 +1172,8 @@ export default function Home() {
                   );
                 })}
               </ScrollView>
+
+              <VideoBozorCard reels={reels as ReelPreview[]} />
 
               <View className="mt-6 px-4">
                 <AppText className="font-bold text-lg text-foreground">

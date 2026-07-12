@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '@halolmia/backend/convex/_generated/api';
 import { useQuery } from 'convex/react';
 import { Tabs, useRouter } from 'expo-router';
-import { Pressable, View, type ColorValue } from 'react-native';
+import { Pressable, StyleSheet, View, useWindowDimensions, type ColorValue } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
@@ -27,22 +28,28 @@ function ChatTabIcon({ color, size }: { color: ColorValue; size: number }) {
   );
 }
 
-function SellTabButton() {
+function SellTabButton({ compact }: { compact: boolean }) {
   const router = useRouter();
+  const size = compact ? 50 : 56;
   return (
-    <View className="flex-1 items-center justify-center">
+    <View className="flex-1 items-center" style={{ minWidth: 0 }}>
       <Pressable
         onPress={() => router.push('/sell')}
         className="items-center justify-center active:opacity-80"
-        hitSlop={8}
+        hitSlop={{ top: 12, bottom: 10, left: 10, right: 10 }}
+        style={{ width: '100%' }}
       >
         <View
           className="items-center justify-center rounded-full"
-          style={{ width: 52, height: 52, backgroundColor: BRAND_BLUE, marginTop: -18 }}
+          style={[styles.sellBubble, { width: size, height: size, marginTop: compact ? -18 : -22 }]}
         >
-          <Ionicons name="add" size={30} color="white" />
+          <Ionicons name="add" size={compact ? 28 : 31} color="white" />
         </View>
-        <AppText className="mt-0.5 text-[11px]" style={{ color: BRAND_BLUE }}>
+        <AppText
+          className="mt-0.5 text-center"
+          numberOfLines={1}
+          style={{ color: BRAND_BLUE, fontFamily: 'Inter-SemiBold', fontSize: compact ? 10 : 11 }}
+        >
           Sotish
         </AppText>
       </Pressable>
@@ -51,6 +58,13 @@ function SellTabButton() {
 }
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const compact = width < 380;
+  const bottomInset = Math.max(insets.bottom, 6);
+  const tabBarHeight = (compact ? 66 : 72) + bottomInset;
+  const iconSize = compact ? 23 : 25;
+
   return (
     <Tabs
       initialRouteName="home"
@@ -58,8 +72,23 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: BRAND_BLUE,
         tabBarInactiveTintColor: '#9ca3af',
-        tabBarStyle: { height: 62, paddingBottom: 8, paddingTop: 6 },
-        tabBarLabelStyle: { fontSize: 11, fontFamily: 'Inter-Medium' },
+        tabBarHideOnKeyboard: true,
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            height: tabBarHeight,
+            paddingBottom: bottomInset,
+            paddingTop: compact ? 6 : 8,
+          },
+        ],
+        tabBarItemStyle: styles.tabItem,
+        tabBarIconStyle: styles.tabIcon,
+        tabBarLabelStyle: {
+          fontSize: compact ? 10 : 11,
+          lineHeight: compact ? 12 : 13,
+          fontFamily: 'Inter-Medium',
+          includeFontPadding: false,
+        },
       }}
     >
       <Tabs.Screen
@@ -67,7 +96,7 @@ export default function TabsLayout() {
         options={{
           title: 'Asosiy',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
+            <Ionicons name="home" size={Math.min(size, iconSize)} color={color} />
           ),
         }}
       />
@@ -76,19 +105,19 @@ export default function TabsLayout() {
         options={{
           title: 'Saqlangan',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="heart-outline" size={size} color={color} />
+            <Ionicons name="heart-outline" size={Math.min(size, iconSize)} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="post"
-        options={{ title: '', tabBarButton: () => <SellTabButton /> }}
+        options={{ title: '', tabBarButton: () => <SellTabButton compact={compact} /> }}
       />
       <Tabs.Screen
         name="chat"
         options={{
           title: 'Chat',
-          tabBarIcon: ({ color, size }) => <ChatTabIcon color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <ChatTabIcon color={color} size={Math.min(size, iconSize)} />,
         }}
       />
       <Tabs.Screen
@@ -96,10 +125,43 @@ export default function TabsLayout() {
         options={{
           title: 'Kabinet',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
+            <Ionicons name="person-outline" size={Math.min(size, iconSize)} color={color} />
           ),
         }}
       />
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  tabBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopWidth: 0,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    overflow: 'visible',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -6 },
+    elevation: 14,
+  },
+  tabItem: {
+    minWidth: 0,
+    paddingHorizontal: 0,
+  },
+  tabIcon: {
+    marginTop: 2,
+    marginBottom: 1,
+  },
+  sellBubble: {
+    backgroundColor: BRAND_BLUE,
+    shadowColor: BRAND_BLUE,
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+});

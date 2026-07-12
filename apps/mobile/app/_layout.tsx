@@ -15,6 +15,7 @@ import {
   Fredoka_700Bold,
 } from '@expo-google-fonts/fredoka';
 import { Stack } from 'expo-router';
+import Head from 'expo-router/head';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
@@ -65,41 +66,51 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={styles.root}>
-      <SafeAreaProvider>
-      <ConvexClientProvider>
-      <AuthProvider>
-      <LocationProvider>
-      <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
-        <PushManager />
-        <IncomingCallOverlay />
-        <StatusBar style="dark" />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="language" />
-          <Stack.Screen name="intent" />
-          <Stack.Screen name="login" />
-          <Stack.Screen name="search" />
-          <Stack.Screen name="sell" />
-          <Stack.Screen name="create" />
-          <Stack.Screen name="reels" />
-          <Stack.Screen name="video-create" />
-          <Stack.Screen name="promote" />
-          <Stack.Screen name="review" />
-          <Stack.Screen name="listing/[id]" />
-          <Stack.Screen name="dealer/[id]" />
-          <Stack.Screen name="chat/[id]" />
-          <Stack.Screen name="call/[id]" options={{ presentation: 'fullScreenModal' }} />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="notifications" />
-          <Stack.Screen name="settings" />
-        </Stack>
-      </HeroUINativeProvider>
-      </LocationProvider>
-      </AuthProvider>
-      </ConvexClientProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <>
+      <Head>
+        <title>Halolmia</title>
+        <meta name="theme-color" content="#0A6CFF" />
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+        <link rel="icon" type="image/png" href="/icon-192.png" sizes="192x192" />
+      </Head>
+      <GestureHandlerRootView style={styles.root}>
+        <SafeAreaProvider>
+        <ConvexClientProvider>
+        <AuthProvider>
+        <LocationProvider>
+        <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
+          <PushManager />
+          <IncomingCallOverlay />
+          <StatusBar style="dark" />
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="language" />
+            <Stack.Screen name="intent" />
+            <Stack.Screen name="login" />
+            <Stack.Screen name="search" />
+            <Stack.Screen name="sell" />
+            <Stack.Screen name="create" />
+            <Stack.Screen name="reels" />
+            <Stack.Screen name="video-create" />
+            <Stack.Screen name="promote" />
+            <Stack.Screen name="review" />
+            <Stack.Screen name="listing/[id]" />
+            <Stack.Screen name="dealer/[id]" />
+            <Stack.Screen name="chat/[id]" />
+            <Stack.Screen name="call/[id]" options={{ presentation: 'fullScreenModal' }} />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="notifications" />
+            <Stack.Screen name="settings" />
+          </Stack>
+        </HeroUINativeProvider>
+        </LocationProvider>
+        </AuthProvider>
+        </ConvexClientProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </>
   );
 }
 

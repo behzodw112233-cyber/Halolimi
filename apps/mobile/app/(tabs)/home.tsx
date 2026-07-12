@@ -9,7 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, type Href } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, Easing, FlatList, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, TextInput, View } from 'react-native';
+import { Alert, Animated, Easing, FlatList, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { ListingCard } from '../../components/listing-card';
@@ -29,6 +29,7 @@ import {
   useVideoPlayer,
   VideoView,
 } from '../../lib/optional-native';
+import { capture, useExperiment } from '../../lib/posthog';
 import { useRecentlyViewed } from '../../lib/recently-viewed';
 import { useSaved } from '../../lib/saved';
 
@@ -81,6 +82,7 @@ type SavedAiSearch = { text: string; summary?: string; savedAt: number };
 
 const AI_SEARCHES_KEY = 'halolmi_ai_searches';
 const LAST_AI_SEARCH_KEY = 'halolmi_last_ai_search';
+const HOME_VARIANTS = ['kabinet_glass', 'kabinet_clean'] as const;
 
 async function getStoredValue(key: string) {
   if (Platform.OS === 'web') {
@@ -201,6 +203,53 @@ function VideoBozorPreview({
     </Pressable>
   );
 }
+
+function ScreenGlow() {
+  return (
+    <>
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(10,108,255,0.22)', 'rgba(255,255,255,0)', 'rgba(15,23,42,0.08)']}
+        locations={[0, 0.5, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View className="absolute -right-24 -top-20 h-72 w-72 rounded-full bg-white/70" />
+      <View className="absolute -left-20 top-44 h-56 w-56 rounded-full" style={{ backgroundColor: BRAND_BLUE + '18' }} />
+    </>
+  );
+}
+
+const homeStyles = StyleSheet.create({
+  headerCard: {
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+  },
+  cleanCard: {
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  glassPanel: {
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.09,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 5,
+  },
+  softCard: {
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+});
 
 function VideoBozorMedia({ reel }: { reel: ReelPreview | null }) {
   const candidates = useMemo(() => thumbnailCandidates(reel?.thumbUrl), [reel?.thumbUrl]);
@@ -337,7 +386,8 @@ function DealerAd({ d }: { d: DealerAdData }) {
     } as unknown as Href);
 
   return (
-    <View className="mx-4 mb-3 overflow-hidden rounded-2xl bg-surface">
+    <View className="mx-4 mb-3 overflow-hidden rounded-[26px] border border-white/70" style={homeStyles.glassPanel}>
+      <BlurView intensity={32} tint="light" style={StyleSheet.absoluteFill} />
       {/* Sponsored header — seller identity */}
       <View className="flex-row items-center px-3 py-2.5">
         {d.avatarUrl ? (
@@ -413,6 +463,8 @@ function DealerAd({ d }: { d: DealerAdData }) {
 export default function Home() {
   const router = useRouter();
   const { userId } = useAuth();
+  const homeVariant = useExperiment('home_section', HOME_VARIANTS, userId);
+  const isGlassHome = homeVariant === 'kabinet_glass';
   const openThread = useMutation(api.messages.openThread);
   const askAi = useAction(api.aiAdvisor.ask);
   const transcribeVoice = useAction(api.aiAdvisor.transcribe);
@@ -504,6 +556,7 @@ export default function Home() {
       setAiOpen(true);
       return;
     }
+    capture('home_ai_search_submit', { home_variant: homeVariant, text_length: text.length }, userId);
     setAiOpen(true);
     setAiLoading(true);
     try {
@@ -638,7 +691,8 @@ export default function Home() {
   const [safetyOpen, setSafetyOpen] = useState(false);
 
   return (
-    <View className="flex-1 bg-background">
+    <View className="flex-1" style={{ backgroundColor: isGlassHome ? '#EEF4FA' : '#F8FAFC' }}>
+      {isGlassHome ? <ScreenGlow /> : null}
       <SafeAreaView edges={['top']} className="flex-1">
         <FlatList
           data={feedData}
@@ -664,9 +718,20 @@ export default function Home() {
           windowSize={9}
           ListHeaderComponent={
             <>
-              <View className="flex-row items-center justify-between px-4 pb-3 pt-1">
+              <View
+                className="mx-4 mb-3 flex-row items-center justify-between overflow-hidden rounded-[28px] border border-white/70 bg-white/65 px-4 py-3"
+                style={isGlassHome ? homeStyles.headerCard : homeStyles.cleanCard}
+              >
+                {isGlassHome ? <BlurView intensity={34} tint="light" style={StyleSheet.absoluteFill} /> : null}
                 <Logo className="text-[#0F172A]" size={22} />
-                <Pressable hitSlop={8} onPress={() => router.push('/notifications')}>
+                <Pressable
+                  hitSlop={8}
+                  onPress={() => {
+                    capture('home_notification_tap', { home_variant: homeVariant }, userId);
+                    router.push('/notifications');
+                  }}
+                  className="h-11 w-11 items-center justify-center rounded-full bg-white/70"
+                >
                   <Ionicons name="notifications-outline" size={26} color="#0F172A" />
                   {hasUnread && (
                     <View
@@ -983,7 +1048,8 @@ export default function Home() {
               ) : null}
 
               {aiCompare.length >= 2 && (
-                <View className="mx-4 mb-4 rounded-2xl bg-surface p-3">
+                <View className="mx-4 mb-4 overflow-hidden rounded-[26px] border border-white/70 bg-white/65 p-3" style={homeStyles.glassPanel}>
+                  <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
                   <View className="mb-2 flex-row items-center justify-between">
                     <View className="flex-row items-center">
                       <Ionicons name="git-compare-outline" size={17} color={BRAND_BLUE} />
@@ -995,8 +1061,11 @@ export default function Home() {
                     {aiCompare.map((listing, index) => (
                       <Pressable
                         key={listing._id}
-                        onPress={() => router.push({ pathname: '/listing/[id]', params: { id: listing._id } })}
-                        className="flex-1 rounded-2xl bg-surface-secondary px-2.5 py-2.5 active:opacity-80"
+                        onPress={() => {
+                          capture('home_ai_more_listing_tap', { home_variant: homeVariant, listing_id: listing._id }, userId);
+                          router.push({ pathname: '/listing/[id]', params: { id: listing._id } });
+                        }}
+                        className="flex-1 rounded-2xl bg-white/70 px-2.5 py-2.5 active:opacity-80"
                       >
                         <View className="mb-1 flex-row items-center">
                           <View className="h-5 w-5 items-center justify-center rounded-full" style={{ backgroundColor: index === 0 ? BRAND_BLUE : '#E5E7EB' }}>
@@ -1034,10 +1103,10 @@ export default function Home() {
                       <Pressable
                         key={listing._id}
                         onPress={() => router.push({ pathname: '/listing/[id]', params: { id: listing._id } })}
-                        className="overflow-hidden rounded-2xl bg-surface active:opacity-90"
-                        style={{ width: 188 }}
+                        className="overflow-hidden rounded-[22px] border border-white/70 bg-white/70 active:opacity-90"
+                        style={[homeStyles.softCard, { width: 188 }]}
                       >
-                        <View className="bg-surface-secondary" style={{ height: 118 }}>
+                        <View className="bg-white/65" style={{ height: 118 }}>
                           <Image
                             source={listing.photoUrls?.[0] ? { uri: listing.photoUrls[0] } : CATEGORY_IMAGES[listing.category]}
                             contentFit={listing.photoUrls?.[0] ? 'cover' : 'contain'}
@@ -1076,14 +1145,21 @@ export default function Home() {
                 </View>
               )}
 
-              <View className="flex-row flex-wrap justify-between px-4">
+              <View
+                className="mx-4 flex-row flex-wrap justify-between overflow-hidden rounded-[28px] border border-white/70 bg-white/55 p-3"
+                style={isGlassHome ? homeStyles.glassPanel : homeStyles.cleanCard}
+              >
+                {isGlassHome ? <BlurView intensity={32} tint="light" style={StyleSheet.absoluteFill} /> : null}
                 <Pressable
-                  onPress={() => router.push('/sell')}
-                  style={{ width: '31.5%', height: 92 }}
-                  className="mb-2.5 items-center justify-center rounded-2xl active:opacity-80"
+                  onPress={() => {
+                    capture('home_sell_tap', { home_variant: homeVariant }, userId);
+                    router.push('/sell');
+                  }}
+                  style={{ width: '31.5%', height: isGlassHome ? 92 : 84 }}
+                  className="mb-2.5 items-center justify-center rounded-[22px] active:opacity-80"
                 >
                   <View
-                    className="h-full w-full items-center justify-center rounded-2xl"
+                    className="h-full w-full items-center justify-center rounded-[22px]"
                     style={{ backgroundColor: BRAND_BLUE }}
                   >
                     <Ionicons name="add" size={26} color="white" />
@@ -1096,11 +1172,12 @@ export default function Home() {
                 {homeCategories.map((c) => (
                   <Pressable
                     key={c._id}
-                    onPress={() =>
-                      router.push({ pathname: '/search', params: { category: c.slug } } as never)
-                    }
-                    style={{ width: '31.5%', height: 92 }}
-                    className="mb-2.5 overflow-hidden rounded-2xl bg-surface-secondary active:opacity-80"
+                    onPress={() => {
+                      capture('home_category_tap', { home_variant: homeVariant, category: c.slug }, userId);
+                      router.push({ pathname: '/search', params: { category: c.slug } } as never);
+                    }}
+                    style={{ width: '31.5%', height: isGlassHome ? 92 : 84 }}
+                    className="mb-2.5 overflow-hidden rounded-[22px] border border-white/60 bg-white/65 active:opacity-80"
                   >
                     <AppText className="px-2.5 pt-2 text-xs font-medium leading-4 text-foreground">
                       {c.name}
@@ -1130,9 +1207,10 @@ export default function Home() {
                     <Pressable
                       key={q.id}
                       className="active:opacity-80"
-                      onPress={() =>
-                        router.push({ pathname: '/search', params: PROMO_FILTERS[q.id] ?? { q: q.title } })
-                      }
+                      onPress={() => {
+                        capture('home_promo_tap', { home_variant: homeVariant, promo_id: q.id }, userId);
+                        router.push({ pathname: '/search', params: PROMO_FILTERS[q.id] ?? { q: q.title } });
+                      }}
                     >
                       <View
                         className="overflow-hidden"
@@ -1175,7 +1253,8 @@ export default function Home() {
 
               <VideoBozorCard reels={reels as ReelPreview[]} />
 
-              <View className="mt-6 px-4">
+              <View className="mx-4 mt-6 overflow-hidden rounded-[26px] border border-white/70 bg-white/65 px-4 py-3" style={homeStyles.headerCard}>
+                <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
                 <AppText className="font-bold text-lg text-foreground">
                   {feedStatus === 'LoadingFirstPage'
                     ? 'Eʼlonlar yuklanmoqda...'
@@ -1248,13 +1327,14 @@ export default function Home() {
                       return (
                         <Pressable
                           key={listing._id}
-                          onPress={() =>
-                            router.push({ pathname: '/listing/[id]', params: { id: listing._id } })
-                          }
-                          className="overflow-hidden rounded-2xl bg-surface active:opacity-90"
-                          style={{ width: 178 }}
+                          onPress={() => {
+                            capture('home_recommendation_tap', { home_variant: homeVariant, listing_id: listing._id }, userId);
+                            router.push({ pathname: '/listing/[id]', params: { id: listing._id } });
+                          }}
+                          className="overflow-hidden rounded-[22px] border border-white/70 bg-white/70 active:opacity-90"
+                          style={[homeStyles.softCard, { width: 178 }]}
                         >
-                          <View className="bg-surface-secondary" style={{ height: 112 }}>
+                          <View className="bg-white/65" style={{ height: 112 }}>
                             <Image
                               source={image}
                               contentFit={photo ? 'cover' : 'contain'}
@@ -1329,7 +1409,10 @@ export default function Home() {
                       ? () => askPrice(listing)
                       : undefined
                   }
-                  onPress={() => router.push({ pathname: '/listing/[id]', params: { id: listing._id } })}
+                  onPress={() => {
+                    capture('home_listing_tap', { home_variant: homeVariant, listing_id: listing._id }, userId);
+                    router.push({ pathname: '/listing/[id]', params: { id: listing._id } });
+                  }}
                 />
               </View>
             );
@@ -1362,7 +1445,7 @@ export default function Home() {
         {/* Safe-buying tips — opened from the trust banner */}
         <Modal visible={safetyOpen} transparent animationType="slide" onRequestClose={() => setSafetyOpen(false)}>
           <Pressable className="flex-1 bg-black/40" onPress={() => setSafetyOpen(false)} />
-          <View className="rounded-t-3xl bg-background px-5 pb-8 pt-5" style={{ maxHeight: '85%' }}>
+          <View className="rounded-t-3xl px-5 pb-8 pt-5" style={{ maxHeight: '85%', backgroundColor: '#EEF4FA' }}>
             <View className="mb-1 flex-row items-center">
               <Ionicons name="shield-checkmark" size={26} color={BRAND_BLUE} />
               <AppText className="ml-2 flex-1 font-bold text-xl text-foreground">Xavfsiz xarid qilish</AppText>
@@ -1382,7 +1465,7 @@ export default function Home() {
                 { icon: 'location-outline', title: 'Xavfsiz joyda uchrashing', body: 'Odamlar koʻp, ochiq joyda uchrashuvni belgilang.' },
                 { icon: 'flag-outline', title: 'Shubha tugʻilsa — shikoyat qiling', body: 'Firibgarlikka duch kelsangiz, eʼlondagi «Shikoyat qilish» tugmasini bosing.' },
               ].map((t) => (
-                <View key={t.title} className="mb-3 flex-row items-start rounded-2xl bg-surface p-3.5">
+                <View key={t.title} className="mb-3 flex-row items-start rounded-2xl border border-white/70 bg-white/70 p-3.5">
                   <View className="mr-3 h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE + '14' }}>
                     <Ionicons name={t.icon as keyof typeof Ionicons.glyphMap} size={20} color={BRAND_BLUE} />
                   </View>

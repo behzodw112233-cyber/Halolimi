@@ -177,6 +177,11 @@ export default defineSchema({
     order: v.number(),
     views: v.number(),
     watchMs: v.number(),
+    threeSecondViews: v.optional(v.number()),
+    halfViews: v.optional(v.number()),
+    completions: v.optional(v.number()),
+    replays: v.optional(v.number()),
+    quickSkips: v.optional(v.number()),
     chatTaps: v.number(),
     callTaps: v.number(),
     createdAt: v.number(),
@@ -212,6 +217,17 @@ export default defineSchema({
     createdAt: v.number(),
   }).index('by_reel', ['reelId']),
 
+  reelHidden: defineTable({
+    userId: v.id('users'),
+    reelId: v.optional(v.id('reels')),
+    sellerId: v.optional(v.id('users')),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index('by_user', ['userId'])
+    .index('by_user_reel', ['userId', 'reelId'])
+    .index('by_user_seller', ['userId', 'sellerId']),
+
   users: defineTable({
     name: v.string(),
     phone: v.string(),
@@ -240,6 +256,13 @@ export default defineSchema({
     // Marked as an official dealer from the admin panel. Only dealers can have
     // showcase videos attached (see dealers table / dilerlar admin page).
     isDealer: v.optional(v.boolean()),
+    // Admin-approved marketplace role, separate from Telegram seller verification.
+    officialKind: v.optional(
+      v.union(v.literal('farmer'), v.literal('dealer'), v.literal('big_player'))
+    ),
+    officialStatus: v.optional(
+      v.union(v.literal('pending'), v.literal('approved'), v.literal('rejected'))
+    ),
     // Extra public profile fields for official dealers.
     dealerAddress: v.optional(v.string()),
     dealerHours: v.optional(v.string()),
@@ -247,6 +270,21 @@ export default defineSchema({
   })
     .index('by_phone', ['phone'])
     .index('by_telegram', ['telegramId']),
+
+  accountMemberships: defineTable({
+    ownerId: v.id('users'),
+    accountId: v.id('users'),
+    role: v.union(v.literal('owner'), v.literal('manager'), v.literal('poster')),
+    kind: v.union(v.literal('personal'), v.literal('business'), v.literal('farm'), v.literal('dealer')),
+    label: v.string(),
+    approvalStatus: v.optional(
+      v.union(v.literal('pending'), v.literal('approved'), v.literal('rejected'))
+    ),
+    reviewedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index('by_owner', ['ownerId'])
+    .index('by_owner_account', ['ownerId', 'accountId']),
 
   // Buyer reviews of a seller (1–5 stars + optional text). One row per review.
   reviews: defineTable({

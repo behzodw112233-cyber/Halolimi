@@ -19,6 +19,8 @@ type ViewerProfile = {
   cities: Map<string, number>;
   sellers: Map<string, number>;
   following: Set<string>;
+  hiddenReels: Set<string>;
+  hiddenSellers: Set<string>;
 };
 
 type RankedReel = {
@@ -60,10 +62,12 @@ async function viewerProfile(ctx: QueryCtx, userId?: Id<'users'>): Promise<Viewe
     cities: new Map(),
     sellers: new Map(),
     following: new Set(),
+    hiddenReels: new Set(),
+    hiddenSellers: new Set(),
   };
   if (!userId) return profile;
 
-  const [likedRows, savedRows, follows] = await Promise.all([
+  const [likedRows, savedRows, follows, hiddenRows] = await Promise.all([
     ctx.db
       .query('reelLikes')
       .withIndex('by_user', (q) => q.eq('userId', userId))
@@ -76,9 +80,17 @@ async function viewerProfile(ctx: QueryCtx, userId?: Id<'users'>): Promise<Viewe
       .query('follows')
       .withIndex('by_follower', (q) => q.eq('followerId', userId))
       .collect(),
+    ctx.db
+      .query('reelHidden')
+      .withIndex('by_user', (q) => q.eq('userId', userId))
+      .collect(),
   ]);
 
   for (const follow of follows) profile.following.add(follow.sellerId);
+  for (const hidden of hiddenRows) {
+    if (hidden.reelId) profile.hiddenReels.add(hidden.reelId);
+    if (hidden.sellerId) profile.hiddenSellers.add(hidden.sellerId);
+  }
 
   const bump = (map: Map<string, number>, key: string | undefined, amount: number) => {
     if (!key) return;
@@ -105,6 +117,12 @@ async function withUrls(ctx: QueryCtx, r: Doc<'reels'>, userId?: Id<'users'>) {
   const storageVideoUrl = r.videoId ? await ctx.storage.getUrl(r.videoId) : null;
   const storageThumbUrl = r.thumbId ? await ctx.storage.getUrl(r.thumbId) : null;
   const seller = r.sellerId ? await ctx.db.get(r.sellerId) : null;
+  const sellerReports = r.sellerId
+    ? await ctx.db
+        .query('reports')
+        .withIndex('by_seller', (q) => q.eq('sellerId', r.sellerId))
+        .collect()
+    : [];
   const sellerAvatarUrl = seller?.avatar ? await ctx.storage.getUrl(seller.avatar) : null;
   const likes = await countByReel(ctx, 'reelLikes', r._id);
   const saves = await countByReel(ctx, 'reelSaves', r._id);
@@ -126,6 +144,9 @@ async function withUrls(ctx: QueryCtx, r: Doc<'reels'>, userId?: Id<'users'>) {
     sellerPhone: seller?.phone ?? null,
     sellerAvatarUrl,
     sellerIsDealer: !!seller?.isDealer,
+    sellerVerified: !!seller?.verifiedAt,
+    sellerPhoneVerified: !!seller?.phoneVerifiedAt || !!seller?.verifiedAt,
+    sellerNoReports: sellerReports.filter((report) => report.status !== 'resolved').length === 0,
     likes,
     saves,
     comments,
@@ -149,6 +170,11 @@ function scoreReel(
   const ageDays = ageMs / DAY_MS;
   const ageHours = ageMs / HOUR_MS;
   const views = Math.max(0, r.views ?? 0);
+  const threeSecondViews = Math.max(0, r.threeSecondViews ?? 0);
+  const halfViews = Math.max(0, r.halfViews ?? 0);
+  const completions = Math.max(0, r.completions ?? 0);
+  const replays = Math.max(0, r.replays ?? 0);
+  const quickSkips = Math.max(0, r.quickSkips ?? 0);
 
   const watchSeconds = Math.max(0, (r.watchMs ?? 0) / 1000);
   const avgWatchSeconds = watchSeconds / Math.max(1, views);
@@ -163,8 +189,20 @@ function scoreReel(
   const commentRate = smoothedRate(counts.comments, views, 0.012, 30);
   const chatRate = smoothedRate(r.chatTaps ?? 0, views, 0.01, 25);
   const callRate = smoothedRate(r.callTaps ?? 0, views, 0.008, 25);
+  const threeSecondRate = smoothedRate(threeSecondViews, views, 0.55, 35);
+  const halfRate = smoothedRate(halfViews, views, 0.3, 35);
+  const completionRate = smoothedRate(completions, views, 0.12, 35);
+  const replayRate = smoothedRate(replays, views, 0.035, 35);
+  const quickSkipRate = smoothedRate(quickSkips, views, 0.18, 35);
 
-  const watchQuality = completion * 260 + Math.min(180, avgWatchSeconds * 9);
+  const watchQuality =
+    completion * 230 +
+    Math.min(180, avgWatchSeconds * 9) +
+    threeSecondRate * 120 +
+    halfRate * 240 +
+    completionRate * 360 +
+    replayRate * 420 -
+    quickSkipRate * 260;
   const engagement = likeRate * 180 + saveRate * 320 + commentRate * 240;
   const marketplaceIntent = chatRate * 520 + callRate * 680 + (r.listingId ? 40 : 0) + (r.price ? 25 : 0);
   const freshness = Math.exp(-ageDays / 4) * 180;
@@ -238,7 +276,12 @@ export const list = query({
       .query('reels')
       .withIndex('by_active', (q) => q.eq('active', true))
       .collect();
-    const ready = rows.filter((r) => r.status === 'ready');
+    const ready = rows.filter(
+      (r) =>
+        r.status === 'ready' &&
+        !profile.hiddenReels.has(r._id) &&
+        !(r.sellerId && profile.hiddenSellers.has(r.sellerId))
+    );
     const hydrated = await Promise.all(
       ready.map(async (r) => {
         const likes = await countByReel(ctx, 'reelLikes', r._id);
@@ -273,12 +316,13 @@ export const bySeller = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { sellerId, userId, limit }) => {
+    const profile = await viewerProfile(ctx, userId);
     const rows = await ctx.db
       .query('reels')
       .withIndex('by_seller', (q) => q.eq('sellerId', sellerId))
       .collect();
     const ready = rows
-      .filter((r) => r.status === 'ready' && r.active)
+      .filter((r) => r.status === 'ready' && r.active && !profile.hiddenReels.has(r._id))
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit ?? 12);
     return Promise.all(ready.map((r) => withUrls(ctx, r, userId)));
@@ -324,6 +368,7 @@ export const create = mutation({
     thumbId: v.optional(v.id('_storage')),
     hlsUrl: v.optional(v.string()),
     thumbnailUrl: v.optional(v.string()),
+    duration: v.optional(v.number()),
     videoProvider: v.optional(
       v.union(
         v.literal('convex'),
@@ -350,6 +395,7 @@ export const create = mutation({
       thumbId: args.thumbId,
       hlsUrl: args.hlsUrl?.trim() || undefined,
       thumbnailUrl: args.thumbnailUrl?.trim() || undefined,
+      duration: args.duration,
       videoProvider: args.videoProvider ?? (args.hlsUrl ? undefined : 'convex'),
       providerVideoId: args.providerVideoId?.trim() || undefined,
       status: 'ready',
@@ -357,6 +403,11 @@ export const create = mutation({
       order,
       views: 0,
       watchMs: 0,
+      threeSecondViews: 0,
+      halfViews: 0,
+      completions: 0,
+      replays: 0,
+      quickSkips: 0,
       chatTaps: 0,
       callTaps: 0,
       createdAt: Date.now(),
@@ -465,11 +516,59 @@ export const recordView = mutation({
 });
 
 export const recordWatch = mutation({
-  args: { reelId: v.id('reels'), ms: v.number() },
-  handler: async (ctx, { reelId, ms }) => {
+  args: {
+    reelId: v.id('reels'),
+    ms: v.number(),
+    durationMs: v.optional(v.number()),
+    replayed: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { reelId, ms, durationMs, replayed }) => {
     const reel = await ctx.db.get(reelId);
     if (!reel || !Number.isFinite(ms) || ms <= 0) return;
-    await ctx.db.patch(reelId, { watchMs: reel.watchMs + Math.min(ms, 120_000) });
+    const cappedMs = Math.min(ms, 120_000);
+    const duration = Number.isFinite(durationMs) && durationMs && durationMs > 0
+      ? durationMs
+      : reel.duration
+        ? reel.duration * 1000
+        : undefined;
+    const patches: Partial<Doc<'reels'>> = {
+      watchMs: reel.watchMs + cappedMs,
+    };
+    if (cappedMs >= 3_000) patches.threeSecondViews = (reel.threeSecondViews ?? 0) + 1;
+    if (duration && cappedMs >= duration * 0.5) patches.halfViews = (reel.halfViews ?? 0) + 1;
+    if (duration && cappedMs >= duration * 0.85) patches.completions = (reel.completions ?? 0) + 1;
+    if (duration && cappedMs < Math.min(2_000, duration * 0.15)) patches.quickSkips = (reel.quickSkips ?? 0) + 1;
+    if (replayed) patches.replays = (reel.replays ?? 0) + 1;
+    await ctx.db.patch(reelId, patches);
+  },
+});
+
+export const hideForUser = mutation({
+  args: {
+    userId: v.id('users'),
+    reelId: v.id('reels'),
+    sellerId: v.optional(v.id('users')),
+    scope: v.union(v.literal('reel'), v.literal('seller')),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, { userId, reelId, sellerId, scope, reason }) => {
+    const existing = scope === 'seller' && sellerId
+      ? await ctx.db
+          .query('reelHidden')
+          .withIndex('by_user_seller', (q) => q.eq('userId', userId).eq('sellerId', sellerId))
+          .first()
+      : await ctx.db
+          .query('reelHidden')
+          .withIndex('by_user_reel', (q) => q.eq('userId', userId).eq('reelId', reelId))
+          .first();
+    if (existing) return existing._id;
+    return ctx.db.insert('reelHidden', {
+      userId,
+      reelId: scope === 'reel' ? reelId : undefined,
+      sellerId: scope === 'seller' ? sellerId : undefined,
+      reason,
+      createdAt: Date.now(),
+    });
   },
 });
 

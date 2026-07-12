@@ -3,7 +3,7 @@ import { api } from '@halolmia/backend/convex/_generated/api';
 import { useMutation, useQuery } from 'convex/react';
 import { useRouter, type Href } from 'expo-router';
 import { useState } from 'react';
-import { Modal, Pressable, View } from 'react-native';
+import { Modal, Platform, Pressable, View } from 'react-native';
 import { AppText } from './app-text';
 import { BRAND_BLUE } from '../constants/theme';
 import { useAuth } from '../lib/auth';
@@ -15,10 +15,11 @@ import { useAuth } from '../lib/auth';
 export function IncomingCallOverlay() {
   const { userId } = useAuth();
   const router = useRouter();
-  const call = useQuery(api.calls.incoming, userId ? { userId } : 'skip');
+  const call = useQuery(api.calls.incoming, Platform.OS !== 'web' && userId ? { userId } : 'skip');
   const decline = useMutation(api.calls.decline);
   const [dismissedId, setDismissedId] = useState<string | null>(null);
 
+  if (Platform.OS === 'web') return null;
   if (!call || call._id === dismissedId) return null;
 
   return (

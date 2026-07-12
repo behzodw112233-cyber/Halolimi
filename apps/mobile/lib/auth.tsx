@@ -13,7 +13,7 @@ import { Alert, AppState, Platform } from 'react-native';
 
 const KEY = 'halolmi_auth';
 
-type Stored = { userId?: string; onboarded?: boolean };
+type Stored = { userId?: string; rootUserId?: string; onboarded?: boolean };
 
 // SecureStore is unavailable on web; fall back to localStorage there.
 const storage = {
@@ -41,12 +41,14 @@ const storage = {
 
 interface AuthValue {
   userId: Id<'users'> | null;
+  rootUserId: Id<'users'> | null;
   user: Doc<'users'> | null | undefined;
   loading: boolean;
   onboarded: boolean;
   login: (phone: string, name?: string) => Promise<Id<'users'>>;
   /** Adopt an already-resolved user id (e.g. after Telegram verifies the phone). */
   adoptSession: (id: Id<'users'>) => Promise<void>;
+  switchAccount: (id: Id<'users'>) => Promise<void>;
   logout: () => Promise<void>;
   finishOnboarding: () => Promise<void>;
 }
@@ -55,6 +57,7 @@ const AuthContext = createContext<AuthValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<Id<'users'> | null>(null);
+  const [rootUserId, setRootUserId] = useState<Id<'users'> | null>(null);
   const [onboarded, setOnboarded] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -68,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     storage.get().then((s) => {
       if (!active) return;
       if (s.userId) setUserId(s.userId as Id<'users'>);
+      setRootUserId((s.rootUserId ?? s.userId ?? null) as Id<'users'> | null);
       if (s.onboarded) setOnboarded(true);
       setLoading(false);
     });
@@ -79,26 +83,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (phone: string, name?: string) => {
     const id = await getOrCreate({ phone, name });
     setUserId(id);
+    setRootUserId(id);
     setOnboarded(true);
-    await storage.set({ userId: id, onboarded: true });
+    await storage.set({ userId: id, rootUserId: id, onboarded: true });
     return id;
   };
 
   const adoptSession = async (id: Id<'users'>) => {
     setUserId(id);
+    setRootUserId(rootUserId ?? id);
     setOnboarded(true);
-    await storage.set({ userId: id, onboarded: true });
+    await storage.set({ userId: id, rootUserId: rootUserId ?? id, onboarded: true });
+  };
+
+  const switchAccount = async (id: Id<'users'>) => {
+    setUserId(id);
+    setOnboarded(true);
+    await storage.set({ userId: id, rootUserId: rootUserId ?? userId ?? id, onboarded: true });
   };
 
   const logout = async () => {
     setUserId(null);
+    setRootUserId(null);
     // Keep onboarded so we don't drop back into the language picker.
     await storage.set({ onboarded: true });
   };
 
   const finishOnboarding = async () => {
     setOnboarded(true);
-    await storage.set({ userId: userId ?? undefined, onboarded: true });
+    await storage.set({ userId: userId ?? undefined, rootUserId: rootUserId ?? userId ?? undefined, onboarded: true });
   };
 
   // React to server-side account state. `user` is `undefined` while the query is
@@ -135,7 +148,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ userId, user, loading, onboarded, login, adoptSession, logout, finishOnboarding }}
+      value={{
+        userId,
+        rootUserId,
+        user,
+        loading,
+        onboarded,
+        login,
+        adoptSession,
+        switchAccount,
+        logout,
+        finishOnboarding,
+      }}
     >
       {children}
     </AuthContext.Provider>

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '@halolmia/backend/convex/_generated/api';
-import { useAction, useQuery } from 'convex/react';
+import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -40,6 +41,16 @@ const PAYMENTS = [
 ];
 
 const TOPUP_PRESETS = [10000, 25000, 50000, 100000];
+function makeToken(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return (
+    Math.random().toString(36).slice(2) +
+    Date.now().toString(36) +
+    Math.random().toString(36).slice(2)
+  );
+}
+
 const fmtSom = (n: number) => `${n.toLocaleString('ru-RU')} soʻm`;
 
 const STATUS_META: Record<string, { label: string; bg: string }> = {
@@ -59,7 +70,7 @@ function GlassStat({ label, value }: { label: string; value: number }) {
 
 export default function Profile() {
   const router = useRouter();
-  const { userId, user, logout } = useAuth();
+  const { userId, rootUserId, user, logout, adoptSession, switchAccount } = useAuth();
 
   const listings = useQuery(
     api.listings.byOwner,
@@ -70,14 +81,32 @@ export default function Profile() {
     userId ? { sellerId: userId, userId, limit: 8 } : 'skip'
   ) ?? [];
   const settings = useQuery(api.settings.get);
+  const accountOwnerId = rootUserId ?? userId;
+  const accounts = useQuery(
+    api.users.accountSwitcher,
+    accountOwnerId && userId ? { ownerId: accountOwnerId, activeId: userId } : 'skip'
+  ) ?? [];
 
   // --- inPAY wallet top-up ---
   const createInvoice = useAction(api.inpay.createInvoice);
+  const startTelegramSession = useMutation(api.authTelegram.start);
+  const createLinkedAccount = useMutation(api.users.createLinkedAccount);
   const [topupOpen, setTopupOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [newAccountOpen, setNewAccountOpen] = useState(false);
+  const [newAccountName, setNewAccountName] = useState('');
+  const [newAccountKind, setNewAccountKind] = useState<'business' | 'farm' | 'dealer'>('business');
   const [amount, setAmount] = useState('');
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [verifyToken, setVerifyToken] = useState<string | null>(null);
+  const [verifyBusy, setVerifyBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [accountBusy, setAccountBusy] = useState(false);
   const invoice = useQuery(api.inpay.byOrder, orderId ? { orderId } : 'skip');
+  const verifyStatus = useQuery(
+    api.authTelegram.status,
+    verifyToken ? { token: verifyToken } : 'skip'
+  );
   const enabledPayments = PAYMENTS.filter((p) => {
     if (!settings) return true;
     if (p.id === 'payme') return settings.payme;
@@ -85,6 +114,8 @@ export default function Profile() {
     if (p.id === 'uzcard') return settings.uzcard;
     return true;
   });
+
+  const activeAccount = accounts.find((a) => a._id === userId) ?? accounts[0];
 
   useEffect(() => {
     if (!invoice) return;
@@ -96,6 +127,17 @@ export default function Profile() {
       setTimeout(() => setOrderId(null), 0);
     }
   }, [invoice]);
+
+  useEffect(() => {
+    if (verifyStatus?.status === 'verified' && verifyStatus.userId) {
+      adoptSession(verifyStatus.userId as Id<'users'>);
+      setTimeout(() => setVerifyToken(null), 0);
+      Alert.alert('Tasdiqlandi', 'Endi siz tasdiqlangan sotuvchisiz.');
+    } else if (verifyStatus?.status === 'expired') {
+      setTimeout(() => setVerifyToken(null), 0);
+      Alert.alert('Muddati tugadi', 'Telegram tasdiqlash muddati tugadi. Qayta urinib koÊ»ring.');
+    }
+  }, [verifyStatus, adoptSession]);
 
   const startTopup = async (som: number, methodId = 'inPAY') => {
     if (!userId || !Number.isFinite(som) || som < 1000 || busy) return;
@@ -166,12 +208,48 @@ export default function Profile() {
       Alert.alert('Sozlanmagan', 'Telegram bot hali ulanmagan.');
       return;
     }
+    if (!userId || verifyBusy) return;
+    const token = makeToken();
+    setVerifyBusy(true);
     try {
-      await Linking.openURL(`https://t.me/${BOT_USERNAME}?start=verify`);
+      await startTelegramSession({ token, userId });
+      setVerifyToken(token);
+      await Linking.openURL(`https://t.me/${BOT_USERNAME}?start=${token}`);
+      setVerifyBusy(false);
     } catch {
+      setTimeout(() => setVerifyToken(null), 0);
+      setVerifyBusy(false);
       Alert.alert('Xatolik', 'Telegramni ochib boʻlmadi. Qayta urinib koʻring.');
     }
   };
+
+  const switchTo = async (id: Id<'users'>) => {
+    setAccountOpen(false);
+    await switchAccount(id);
+  };
+
+  const addAccount = async () => {
+    if (!accountOwnerId || accountBusy) return;
+    setAccountBusy(true);
+    try {
+      const id = await createLinkedAccount({
+        ownerId: accountOwnerId,
+        name: newAccountName.trim(),
+        kind: newAccountKind,
+      });
+      setNewAccountName('');
+      setNewAccountKind('business');
+      setNewAccountOpen(false);
+      setAccountOpen(false);
+      await switchAccount(id as Id<'users'>);
+    } catch (e) {
+      Alert.alert('Xatolik', e instanceof Error ? e.message : "Profil qo'shib bo'lmadi.");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const verifying = !!verifyToken && verifyStatus?.status === 'pending';
 
   return (
     <View className="flex-1" style={{ backgroundColor: '#EEF4FA' }}>
@@ -199,6 +277,70 @@ export default function Profile() {
               <AppText className="ml-1.5 font-medium text-base" style={{ color: BRAND_BLUE }}>Sozlamalar</AppText>
             </Pressable>
           </View>
+
+          <Pressable
+            onPress={() => setAccountOpen(true)}
+            className="mx-4 mb-2 flex-row items-center rounded-[24px] border border-white/70 bg-white/70 px-4 py-3 active:opacity-80"
+            style={{
+              shadowColor: '#0F172A',
+              shadowOpacity: 0.08,
+              shadowRadius: 14,
+              shadowOffset: { width: 0, height: 8 },
+              elevation: 4,
+            }}
+          >
+            <View className="h-11 w-11 items-center justify-center overflow-hidden rounded-full" style={{ backgroundColor: BRAND_BLUE }}>
+              {activeAccount?.avatarUrl ? (
+                <Image source={{ uri: activeAccount.avatarUrl }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
+              ) : (
+                <AppText className="font-display text-xl text-white">
+                  {(activeAccount?.name ?? displayName).charAt(0).toUpperCase()}
+                </AppText>
+              )}
+            </View>
+            <View className="ml-3 flex-1">
+              <View className="flex-row items-center">
+                <AppText className="font-bold text-base text-[#0F172A]" numberOfLines={1}>
+                  {activeAccount?.name ?? displayName}
+                </AppText>
+                {activeAccount?.kind !== 'personal' && (
+                  <View
+                    className="ml-2 rounded-full px-2 py-0.5"
+                    style={{
+                      backgroundColor:
+                        activeAccount?.approvalStatus === 'pending'
+                          ? '#FEF3C7'
+                          : activeAccount?.approvalStatus === 'rejected'
+                            ? '#FEE2E2'
+                            : '#EFF6FF',
+                    }}
+                  >
+                    <AppText
+                      className="text-[10px] font-bold"
+                      style={{
+                        color:
+                          activeAccount?.approvalStatus === 'pending'
+                            ? '#B45309'
+                            : activeAccount?.approvalStatus === 'rejected'
+                              ? '#DC2626'
+                              : BRAND_BLUE,
+                      }}
+                    >
+                      {activeAccount?.approvalStatus === 'pending'
+                        ? 'Admin tekshiruvda'
+                        : activeAccount?.approvalStatus === 'rejected'
+                          ? 'Rad etildi'
+                          : activeAccount?.label}
+                    </AppText>
+                  </View>
+                )}
+              </View>
+              <AppText className="text-[12px] font-semibold text-[#64748B]">
+                {accounts.length > 1 ? `${accounts.length} profil ulangan` : "Profil qo'shish mumkin"}
+              </AppText>
+            </View>
+            <Ionicons name="swap-horizontal" size={21} color={BRAND_BLUE} />
+          </Pressable>
 
           {/* Balance card */}
           <View
@@ -247,13 +389,17 @@ export default function Profile() {
                 </AppText>
               </View>
               <View className="flex-1">
-                <AppText className="font-bold text-base text-[#0F172A]">{displayName}</AppText>
+                <View className="flex-row items-center">
+                  <AppText className="font-bold text-base text-[#0F172A]" numberOfLines={1}>
+                    {displayName}
+                  </AppText>
+                  {isVerified ? (
+                    <View className="ml-1">
+                      <VerifiedSellerBadge compact iconOnly />
+                    </View>
+                  ) : null}
+                </View>
                 <AppText className="mt-0.5 text-sm text-[#64748B]">Sotuvchi kabineti</AppText>
-                {isVerified ? (
-                  <View className="mt-1.5 self-start">
-                    <VerifiedSellerBadge compact />
-                  </View>
-                ) : null}
               </View>
               <View className="flex-row gap-2">
                 <GlassStat label="Faol" value={activeListings} />
@@ -263,19 +409,16 @@ export default function Profile() {
           </View>
 
           {/* Verified seller: Telegram + phone match */}
+          {!isVerified ? (
           <View
             className="mx-4 mt-3 overflow-hidden rounded-2xl border px-4 py-3.5"
             style={{
-              backgroundColor: isVerified ? '#EFF6FF' : '#FFFBEB',
-              borderColor: isVerified ? '#BFDBFE' : '#FDE68A',
+              backgroundColor: '#FFFBEB',
+              borderColor: '#FDE68A',
             }}
           >
             <View className="flex-row items-start">
-              <Ionicons
-                name={isVerified ? 'shield-checkmark' : 'shield-outline'}
-                size={22}
-                color={isVerified ? BRAND_BLUE : '#B45309'}
-              />
+              <Ionicons name="shield-outline" size={22} color="#B45309" />
               <View className="ml-2.5 flex-1">
                 <AppText
                   className="font-semibold text-sm"
@@ -294,18 +437,24 @@ export default function Profile() {
                 {!isVerified ? (
                   <Pressable
                     onPress={openTelegramVerify}
+                    disabled={verifyBusy || verifying}
                     className="mt-2.5 h-10 flex-row items-center justify-center self-start rounded-xl px-3.5 active:opacity-85"
-                    style={{ backgroundColor: '#229ED9' }}
+                    style={{ backgroundColor: '#229ED9', opacity: verifyBusy || verifying ? 0.72 : 1 }}
                   >
-                    <Ionicons name="paper-plane" size={16} color="#fff" />
+                    {verifyBusy || verifying ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="paper-plane" size={16} color="#fff" />
+                    )}
                     <AppText className="ml-1.5 font-semibold text-sm text-white">
-                      Telegram orqali tasdiqlash
+                      {verifying ? 'Telegram kutilmoqda...' : 'Telegram orqali tasdiqlash'}
                     </AppText>
                   </Pressable>
                 ) : null}
               </View>
             </View>
           </View>
+          ) : null}
 
           {reels.length > 0 && (
             <View className="mt-5">
@@ -458,6 +607,130 @@ export default function Profile() {
             <AppText className="mt-1 text-sm text-muted">1.0.0 versiyasi</AppText>
           </View>
         </ScrollView>
+
+        <Modal visible={accountOpen} transparent animationType="slide" onRequestClose={() => setAccountOpen(false)}>
+          <Pressable className="flex-1 bg-black/40" onPress={() => setAccountOpen(false)} />
+          <View className="rounded-t-3xl bg-background px-5 pb-8 pt-5">
+            <View className="mb-4 flex-row items-center justify-between">
+              <View>
+                <AppText className="font-bold text-xl text-foreground">Profil almashtirish</AppText>
+                <AppText className="mt-0.5 text-sm text-muted">Sotish qaysi profil nomidan ketishini tanlang.</AppText>
+              </View>
+              <Pressable onPress={() => setAccountOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={26} color="#9ca3af" />
+              </Pressable>
+            </View>
+
+            {accounts.map((account) => (
+              <Pressable
+                key={account._id}
+                onPress={() => switchTo(account._id)}
+                className="mb-2 flex-row items-center rounded-2xl border border-border bg-surface px-3 py-3 active:opacity-80"
+              >
+                <View className="h-12 w-12 items-center justify-center overflow-hidden rounded-full" style={{ backgroundColor: account.isActive ? BRAND_BLUE : '#E5E7EB' }}>
+                  {account.avatarUrl ? (
+                    <Image source={{ uri: account.avatarUrl }} contentFit="cover" style={{ width: '100%', height: '100%' }} />
+                  ) : (
+                    <AppText className="font-display text-lg" style={{ color: account.isActive ? '#fff' : '#334155' }}>
+                      {account.name.charAt(0).toUpperCase()}
+                    </AppText>
+                  )}
+                </View>
+                <View className="ml-3 flex-1">
+                  <View className="flex-row items-center">
+                    <AppText className="font-bold text-base text-foreground" numberOfLines={1}>{account.name}</AppText>
+                    {account.verified && <Ionicons name="checkmark-circle" size={15} color={BRAND_BLUE} style={{ marginLeft: 5 }} />}
+                  </View>
+                  <AppText className="text-sm text-muted" numberOfLines={1}>
+                    {account.approvalStatus === 'pending'
+                      ? 'Admin tasdiqlashi kutilmoqda'
+                      : account.approvalStatus === 'rejected'
+                        ? 'Admin rad etdi'
+                        : account.label}{' '}
+                    · {account.activeListingsCount} faol e'lon
+                  </AppText>
+                </View>
+                {account.isActive ? (
+                  <Ionicons name="radio-button-on" size={22} color={BRAND_BLUE} />
+                ) : (
+                  <Ionicons name="radio-button-off" size={22} color="#CBD5E1" />
+                )}
+              </Pressable>
+            ))}
+
+            <Pressable
+              onPress={() => setNewAccountOpen(true)}
+              className="mt-2 h-13 flex-row items-center justify-center rounded-2xl active:opacity-90"
+              style={{ height: 52, backgroundColor: BRAND_BLUE }}
+            >
+              <Ionicons name="add-circle-outline" size={20} color="#fff" />
+              <AppText className="ml-2 font-semibold text-base text-white">Sotuvchi profil qo'shish</AppText>
+            </Pressable>
+          </View>
+        </Modal>
+
+        <Modal visible={newAccountOpen} transparent animationType="slide" onRequestClose={() => setNewAccountOpen(false)}>
+          <Pressable className="flex-1 bg-black/40" onPress={() => setNewAccountOpen(false)} />
+          <View className="rounded-t-3xl bg-background px-5 pb-8 pt-5">
+            <View className="mb-4 flex-row items-center justify-between">
+              <View>
+                <AppText className="font-bold text-xl text-foreground">Yangi sotuvchi profili</AppText>
+                <AppText className="mt-0.5 text-sm text-muted">Ferma, diler yoki alohida sotuvchi nomidan soting.</AppText>
+              </View>
+              <Pressable onPress={() => setNewAccountOpen(false)} hitSlop={10}>
+                <Ionicons name="close" size={26} color="#9ca3af" />
+              </Pressable>
+            </View>
+
+            <TextInput
+              value={newAccountName}
+              onChangeText={setNewAccountName}
+              placeholder="Masalan: Vodiy Ferma"
+              placeholderTextColor="#9ca3af"
+              className="mb-4 h-14 rounded-xl border px-4 text-lg text-foreground"
+              style={{ borderColor: BRAND_BLUE, fontFamily: 'Inter-Regular' }}
+            />
+
+            <View className="mb-4 flex-row gap-2">
+              {[
+                { id: 'business', label: 'Sotuvchi', icon: 'person-circle-outline' },
+                { id: 'farm', label: 'Ferma', icon: 'leaf-outline' },
+                { id: 'dealer', label: 'Diler', icon: 'storefront-outline' },
+              ].map((kind) => {
+                const active = newAccountKind === kind.id;
+                return (
+                  <Pressable
+                    key={kind.id}
+                    onPress={() => setNewAccountKind(kind.id as 'business' | 'farm' | 'dealer')}
+                    className="flex-1 items-center rounded-2xl px-2 py-3 active:opacity-80"
+                    style={{ backgroundColor: active ? BRAND_BLUE : '#F1F5F9' }}
+                  >
+                    <Ionicons name={kind.icon as keyof typeof Ionicons.glyphMap} size={19} color={active ? '#fff' : '#64748B'} />
+                    <AppText className="mt-1 text-[12px] font-bold" style={{ color: active ? '#fff' : '#334155' }}>
+                      {kind.label}
+                    </AppText>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Pressable
+              onPress={addAccount}
+              disabled={accountBusy || !newAccountName.trim()}
+              className="h-13 flex-row items-center justify-center rounded-2xl active:opacity-90"
+              style={{ height: 52, backgroundColor: newAccountName.trim() ? BRAND_BLUE : '#CBD5E1' }}
+            >
+              {accountBusy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
+                  <AppText className="ml-2 font-semibold text-base text-white">Qo'shish va o'tish</AppText>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </Modal>
 
         {/* Top-up sheet */}
         <Modal visible={topupOpen} transparent animationType="slide" onRequestClose={() => setTopupOpen(false)}>

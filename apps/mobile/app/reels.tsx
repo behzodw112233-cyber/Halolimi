@@ -8,8 +8,7 @@ import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Chip } from 'heroui-native';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -45,6 +44,21 @@ function cacheableSource(url?: string | null) {
   return { uri: url, useCaching: true };
 }
 
+function shouldUseCloudflareFrame(reel: Reel) {
+  return Platform.OS === 'web' && reel.videoProvider === 'cloudflare' && !!reel.providerVideoId;
+}
+
+function cloudflareFrameUrl(uid: string, playing: boolean) {
+  const params = new URLSearchParams({
+    autoplay: playing ? 'true' : 'false',
+    muted: 'true',
+    loop: 'true',
+    controls: 'false',
+    preload: 'true',
+  });
+  return `https://iframe.videodelivery.net/${uid}?${params.toString()}`;
+}
+
 /**
  * expo-video swaps/releases the native player whenever `useVideoPlayer`'s
  * source argument changes (as it does here when a slide scrolls out of the
@@ -71,6 +85,7 @@ export default function ReelsScreen() {
   );
   const reelsQuery = sellerId ? sellerReelsQuery : globalReelsQuery;
   const reels = useMemo(() => reelsQuery ?? [], [reelsQuery]);
+  const isLoading = reelsQuery === undefined;
   const [activeIndex, setActiveIndex] = useState(0);
   const [commentsFor, setCommentsFor] = useState<Reel | null>(null);
 
@@ -86,6 +101,20 @@ export default function ReelsScreen() {
     },
     []
   );
+
+  useEffect(() => {
+    const prefetch = (Image as unknown as { prefetch?: (urls: string | string[]) => Promise<unknown> }).prefetch;
+    if (!prefetch || !reels.length) return;
+    const targets = reels
+      .slice(Math.max(0, activeIndex - 1), activeIndex + 4)
+      .map((reel) => reel.thumbUrl)
+      .filter((url): url is string => !!url);
+    if (targets.length) prefetch(targets).catch(() => {});
+  }, [activeIndex, reels]);
+
+  if (isLoading) {
+    return <ReelsLoadingSkeleton onBack={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home'))} />;
+  }
 
   if (reels.length === 0) {
     return (
@@ -122,7 +151,7 @@ export default function ReelsScreen() {
           <ReelSlide
             reel={item}
             active={index === activeIndex}
-            near={Math.abs(index - activeIndex) <= 1}
+            near={index >= activeIndex - 1 && index <= activeIndex + 2}
             height={height}
             userId={userId}
             userName={user?.name ?? user?.phone ?? 'Foydalanuvchi'}
@@ -131,6 +160,8 @@ export default function ReelsScreen() {
           />
         )}
       />
+      <VideoWarmup url={reels[activeIndex + 1]?.videoUrl} />
+      <VideoWarmup url={reels[activeIndex + 2]?.videoUrl} />
       <CommentsSheet
         reel={commentsFor}
         userId={userId}
@@ -139,6 +170,87 @@ export default function ReelsScreen() {
       />
     </View>
   );
+}
+
+function ReelsLoadingSkeleton({ onBack }: { onBack: () => void }) {
+  const { top, bottom } = useSafeAreaInsets();
+  return (
+    <View className="flex-1 bg-black">
+      <LinearGradient
+        colors={['rgba(15,23,42,0.86)', 'rgba(2,6,23,1)']}
+        style={StyleSheet.absoluteFill}
+      />
+      <View className="absolute left-0 right-0 flex-row items-center justify-between px-4" style={{ top: top + 8 }}>
+        <Pressable onPress={onBack} hitSlop={10} className="h-10 w-10 items-center justify-center rounded-full bg-white/12">
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </Pressable>
+        <View className="h-9 w-32 rounded-full bg-white/12" />
+        <View className="h-10 w-10 rounded-full bg-white/10" />
+      </View>
+      <View className="absolute right-4 gap-4" style={{ bottom: bottom + 152 }}>
+        {[0, 1, 2, 3].map((item) => (
+          <View key={item} className="items-center">
+            <View className="h-10 w-10 rounded-full bg-white/12" />
+            <View className="mt-2 h-2 w-5 rounded-full bg-white/10" />
+          </View>
+        ))}
+      </View>
+      <View className="absolute left-4 right-20" style={{ bottom: bottom + 24 }}>
+        <View className="mb-3 flex-row items-center">
+          <View className="h-11 w-11 rounded-full bg-white/16" />
+          <View className="ml-3 flex-1">
+            <View className="h-4 w-36 rounded-full bg-white/16" />
+            <View className="mt-2 h-3 w-28 rounded-full bg-white/10" />
+          </View>
+        </View>
+        <View className="h-16 rounded-[22px] border border-white/10 bg-white/10" />
+        <View className="mt-4 flex-row gap-2">
+          <View className="h-12 flex-1 rounded-xl bg-white/16" />
+          <View className="h-12 flex-1 rounded-xl bg-white/12" />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function VideoWarmup({ url }: { url?: string | null }) {
+  const warmupUrl = Platform.OS === 'web' && url?.includes('.m3u8') ? null : url;
+  const player = useVideoPlayer(warmupUrl ? cacheableSource(warmupUrl) : '', (p) => {
+    (p as unknown as { muted?: boolean }).muted = true;
+    p.loop = false;
+  });
+
+  useEffect(() => {
+    if (!warmupUrl) return;
+    safeVideoCall(() => player.pause());
+  }, [player, warmupUrl]);
+
+  return null;
+}
+
+function CloudflareStreamFrame({
+  uid,
+  playing,
+}: {
+  uid: string;
+  playing: boolean;
+}) {
+  if (Platform.OS !== 'web') return null;
+  return React.createElement('iframe', {
+    src: playing ? cloudflareFrameUrl(uid, true) : undefined,
+    allow: 'accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;',
+    allowFullScreen: true,
+    frameBorder: 0,
+    style: {
+      position: 'absolute',
+      inset: 0,
+      width: '100%',
+      height: '100%',
+      border: 0,
+      pointerEvents: 'none',
+      backgroundColor: '#000',
+    },
+  });
 }
 
 function ReelSlide({
@@ -163,6 +275,7 @@ function ReelSlide({
   const router = useRouter();
   const { top, bottom } = useSafeAreaInsets();
   const [manualPaused, setManualPaused] = useState(false);
+  const [videoLoading, setVideoLoading] = useState(false);
   const [safetyOpen, setSafetyOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const viewRecorded = useRef(false);
@@ -171,8 +284,9 @@ function ReelSlide({
   const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartScale = useRef(new Animated.Value(0)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
+  const useCloudflareFrame = shouldUseCloudflareFrame(reel);
 
-  const player = useVideoPlayer(near ? cacheableSource(reel.videoUrl) : '', (p) => {
+  const player = useVideoPlayer(near && !useCloudflareFrame ? cacheableSource(reel.videoUrl) : '', (p) => {
     p.loop = true;
   });
 
@@ -184,6 +298,7 @@ function ReelSlide({
   const openThread = useMutation(api.messages.openThread);
   const toggleFollow = useMutation(api.follows.toggle);
   const createReport = useMutation(api.reports.create);
+  const hideReel = useMutation(api.reels.hideForUser);
 
   useEffect(() => {
     if (active && !manualPaused) {
@@ -198,13 +313,25 @@ function ReelSlide({
       if (watchStartedAt.current) {
         const ms = Date.now() - watchStartedAt.current;
         watchStartedAt.current = null;
-        if (ms > 800) recordWatch({ reelId: reel._id, ms }).catch(() => {});
+        const durationMs = reel.duration ? reel.duration * 1000 : undefined;
+        const replayed = !!durationMs && ms > durationMs * 1.15;
+        if (ms > 800) recordWatch({ reelId: reel._id, ms, durationMs, replayed }).catch(() => {});
       }
     }
     return () => {
       safeVideoCall(() => player.pause());
     };
-  }, [active, manualPaused, player, recordView, recordWatch, reel._id]);
+  }, [active, manualPaused, player, recordView, recordWatch, reel._id, reel.duration]);
+
+  useEffect(() => {
+    if (!active || manualPaused || !reel.videoUrl) {
+      setVideoLoading(false);
+      return;
+    }
+    setVideoLoading(true);
+    const timeout = setTimeout(() => setVideoLoading(false), 850);
+    return () => clearTimeout(timeout);
+  }, [active, manualPaused, reel.videoUrl]);
 
   const requireLogin = () => {
     if (userId) return false;
@@ -321,13 +448,25 @@ function ReelSlide({
 
   const submitReport = (reason: string) => {
     setSafetyOpen(false);
+    const scope = reason.toLowerCase().includes('firib') ? 'seller' : 'reel';
     createReport({
       listingTitle: reel.title,
       reason,
       reporter: userName,
       sellerId: reel.sellerId ?? undefined,
     })
-      .then(() => Alert.alert('Yuborildi', 'Shikoyat adminlarga yuborildi. Rahmat!'))
+      .then(async () => {
+        if (userId) {
+          await hideReel({
+            userId,
+            reelId: reel._id,
+            sellerId: reel.sellerId ?? undefined,
+            scope,
+            reason,
+          });
+        }
+        Alert.alert('Yuborildi', userId ? 'Shikoyat yuborildi va video lentadan yashirildi.' : 'Shikoyat adminlarga yuborildi. Rahmat!');
+      })
       .catch(() => Alert.alert('Xatolik', 'Shikoyat yuborilmadi. Qayta urinib ko`ring.'));
   };
 
@@ -347,12 +486,16 @@ function ReelSlide({
             style={{ position: 'absolute', width: '100%', height: '100%' }}
           />
         ) : null}
-        <VideoView
-          player={player}
-          style={{ position: 'absolute', width: '100%', height: '100%' }}
-          contentFit="cover"
-          nativeControls={false}
-        />
+        {useCloudflareFrame && reel.providerVideoId ? (
+          <CloudflareStreamFrame uid={reel.providerVideoId} playing={active && !manualPaused} />
+        ) : (
+          <VideoView
+            player={player}
+            style={{ position: 'absolute', width: '100%', height: '100%' }}
+            contentFit="cover"
+            nativeControls={false}
+          />
+        )}
         <LinearGradient
           colors={['rgba(0,0,0,0.45)', 'transparent', 'rgba(0,0,0,0.82)']}
           locations={[0, 0.42, 1]}
@@ -362,6 +505,14 @@ function ReelSlide({
           <View className="absolute inset-0 items-center justify-center">
             <View className="h-16 w-16 items-center justify-center rounded-full bg-black/45">
               <Ionicons name="play" size={34} color="#fff" style={{ marginLeft: 4 }} />
+            </View>
+          </View>
+        ) : null}
+        {videoLoading ? (
+          <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
+            <View className="items-center rounded-3xl border border-white/10 bg-black/45 px-5 py-4">
+              <ActivityIndicator color="#fff" />
+              <AppText className="mt-2 text-xs font-semibold text-white/80">Yuklanmoqda</AppText>
             </View>
           </View>
         ) : null}
@@ -456,22 +607,34 @@ function ReelSlide({
           ) : null}
         </View>
 
+        <View className="mb-2 flex-row flex-wrap gap-1.5">
+          {reel.sellerVerified || reel.sellerIsDealer ? <TrustBadge icon="checkmark-circle" label="Ishonchli" /> : null}
+          {reel.sellerPhoneVerified ? <TrustBadge icon="call" label="Telefon tasdiq" /> : null}
+          {reel.sellerNoReports ? <TrustBadge icon="shield-checkmark" label="Toza sotuvchi" /> : null}
+        </View>
+
         <Pressable
           onPress={() => setDetailsOpen(true)}
-          className="overflow-hidden rounded-[22px] border border-white/20 active:opacity-85"
-          style={{ backgroundColor: 'rgba(10, 15, 25, 0.34)' }}
+          className="overflow-hidden rounded-[22px] border active:opacity-85"
+          style={{
+            borderColor: 'rgba(96,165,250,0.42)',
+            backgroundColor: 'rgba(29,78,216,0.30)',
+          }}
         >
           <BlurView intensity={26} tint="dark" className="px-3.5 py-3">
             <LinearGradient
               pointerEvents="none"
-              colors={['rgba(255,255,255,0.24)', 'rgba(255,255,255,0.04)', 'transparent']}
+              colors={['rgba(59,130,246,0.40)', 'rgba(30,64,175,0.20)', 'rgba(15,23,42,0.10)']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={StyleSheet.absoluteFill}
             />
             <View className="flex-row items-center">
-              <View className="mr-3 h-9 w-9 items-center justify-center rounded-full bg-white/18">
-                <Ionicons name="information-circle-outline" size={21} color="#fff" />
+              <View
+                className="mr-3 h-9 w-9 items-center justify-center rounded-full"
+                style={{ backgroundColor: 'rgba(147,197,253,0.22)' }}
+              >
+                <Ionicons name="information-circle-outline" size={21} color="#DBEAFE" />
               </View>
               <View className="flex-1">
                 {!!reel.price && (
@@ -483,7 +646,7 @@ function ReelSlide({
                   {reel.title}
                 </AppText>
               </View>
-              <Ionicons name="chevron-up" size={18} color="rgba(255,255,255,0.72)" />
+              <Ionicons name="chevron-up" size={18} color="rgba(219,234,254,0.86)" />
             </View>
           </BlurView>
         </Pressable>
@@ -523,6 +686,15 @@ function ReelSlide({
         reel={reel}
         onClose={() => setDetailsOpen(false)}
       />
+    </View>
+  );
+}
+
+function TrustBadge({ icon, label }: { icon: keyof typeof Ionicons.glyphMap; label: string }) {
+  return (
+    <View className="flex-row items-center rounded-full border border-white/12 bg-black/34 px-2.5 py-1">
+      <Ionicons name={icon} size={12} color="#BFDBFE" />
+      <AppText className="ml-1 text-[11px] font-bold text-white/88">{label}</AppText>
     </View>
   );
 }
@@ -622,13 +794,13 @@ function ProductDetailSheet({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View className="flex-1 justify-end bg-black/30">
+      <View className="flex-1 justify-end bg-black/45">
         <Pressable className="flex-1" onPress={onClose} />
         <View className="px-3 pb-3" style={{ paddingBottom: bottom + 10 }}>
           <View
-            className="overflow-hidden rounded-[34px] border border-white/20"
+            className="overflow-hidden rounded-[34px] border border-white/10"
             style={{
-              backgroundColor: 'rgba(9, 14, 24, 0.58)',
+              backgroundColor: 'rgba(5, 8, 14, 0.84)',
               shadowColor: '#000',
               shadowOpacity: 0.36,
               shadowRadius: 28,
@@ -640,17 +812,16 @@ function ProductDetailSheet({
               <LinearGradient
                 pointerEvents="none"
                 colors={[
-                  'rgba(255,255,255,0.30)',
-                  'rgba(255,255,255,0.08)',
-                  'rgba(255,255,255,0.02)',
+                  'rgba(29,78,216,0.22)',
+                  'rgba(255,255,255,0.05)',
+                  'rgba(0,0,0,0.26)',
                 ]}
                 locations={[0, 0.36, 1]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 0.92, y: 1 }}
                 style={StyleSheet.absoluteFill}
               />
-              <View className="absolute -right-8 -top-10 h-32 w-32 rounded-full bg-white/12" />
-              <View className="absolute left-8 top-0 h-px w-40 bg-white/55" />
+              <View className="absolute left-8 top-0 h-px w-40" style={{ backgroundColor: 'rgba(59,130,246,0.55)' }} />
 
               <View className="items-center pt-2.5">
                 <View className="h-1.5 w-11 rounded-full bg-white/40" />
@@ -659,7 +830,7 @@ function ProductDetailSheet({
               <View className="px-5 pb-5 pt-4">
                 <View className="mb-4 flex-row items-start justify-between">
                   <View className="flex-1 pr-3">
-                    <AppText className="text-xs font-semibold uppercase tracking-[1.6px] text-white/55">
+                    <AppText className="text-xs font-semibold uppercase text-white/50">
                       Mahsulot tafsilotlari
                     </AppText>
                     <AppText className="mt-1 font-bold text-2xl leading-7 text-white" numberOfLines={2}>
@@ -674,7 +845,8 @@ function ProductDetailSheet({
                   <Pressable
                     onPress={onClose}
                     hitSlop={10}
-                    className="h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/12 active:opacity-75"
+                    className="h-10 w-10 items-center justify-center rounded-full border active:opacity-75"
+                    style={{ borderColor: 'rgba(255,255,255,0.14)', backgroundColor: 'rgba(15,23,42,0.74)' }}
                   >
                     <Ionicons name="close" size={22} color="#fff" />
                   </Pressable>
@@ -682,15 +854,16 @@ function ProductDetailSheet({
 
                 <View className="mb-4 flex-row flex-wrap gap-2">
                   {chips.slice(0, 4).map((chip, index) => (
-                    <Chip
+                    <View
                       key={`${chip}-${index}`}
-                      size="sm"
-                      variant={index === 0 ? 'primary' : 'secondary'}
-                      color={index === 0 ? 'accent' : 'default'}
-                      className="border border-white/15 bg-white/14"
+                      className="rounded-full border px-3 py-1.5"
+                      style={{
+                        borderColor: index === 0 ? 'rgba(59,130,246,0.42)' : 'rgba(255,255,255,0.12)',
+                        backgroundColor: index === 0 ? 'rgba(29,78,216,0.34)' : 'rgba(15,23,42,0.62)',
+                      }}
                     >
-                      <Chip.Label className="font-semibold text-white">{chip}</Chip.Label>
-                    </Chip>
+                      <AppText className="text-xs font-semibold text-white/90">{chip}</AppText>
+                    </View>
                   ))}
                 </View>
 
@@ -703,12 +876,16 @@ function ProductDetailSheet({
                     {rows.map((row) => (
                       <View
                         key={row.label}
-                        className="min-h-[78px] rounded-[22px] border border-white/12 bg-white/10 px-3 py-3"
-                        style={{ width: '48%' }}
+                        className="min-h-[78px] rounded-[22px] border px-3 py-3"
+                        style={{
+                          width: '48%',
+                          borderColor: 'rgba(255,255,255,0.10)',
+                          backgroundColor: 'rgba(15,23,42,0.58)',
+                        }}
                       >
                         <View className="mb-2 flex-row items-center">
-                          <View className="mr-2 h-7 w-7 items-center justify-center rounded-full bg-white/12">
-                            <Ionicons name={row.icon} size={15} color="rgba(255,255,255,0.86)" />
+                          <View className="mr-2 h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(59,130,246,0.22)' }}>
+                            <Ionicons name={row.icon} size={15} color="rgba(191,219,254,0.96)" />
                           </View>
                           <AppText className="text-xs font-semibold text-white/58">{row.label}</AppText>
                         </View>
@@ -720,10 +897,10 @@ function ProductDetailSheet({
                   </View>
 
                   {!!description && (
-                    <View className="mt-3 rounded-[24px] border border-white/12 bg-black/18 p-4">
+                    <View className="mt-3 rounded-[24px] border p-4" style={{ borderColor: 'rgba(255,255,255,0.10)', backgroundColor: 'rgba(2,6,23,0.46)' }}>
                       <View className="mb-2 flex-row items-center">
                         <Ionicons name="reader-outline" size={16} color="rgba(255,255,255,0.72)" />
-                        <AppText className="ml-2 text-xs font-semibold uppercase tracking-[1.2px] text-white/58">
+                        <AppText className="ml-2 text-xs font-semibold uppercase text-white/58">
                           Izoh
                         </AppText>
                       </View>
@@ -736,16 +913,18 @@ function ProductDetailSheet({
                   <Pressable
                     onPress={openListing}
                     disabled={!reel.listingId}
-                    className="h-13 flex-1 flex-row items-center justify-center rounded-2xl bg-white active:opacity-90 disabled:opacity-50"
+                    className="h-13 flex-1 flex-row items-center justify-center rounded-2xl border active:opacity-90 disabled:opacity-50"
+                    style={{ borderColor: 'rgba(59,130,246,0.38)', backgroundColor: 'rgba(37,99,235,0.34)' }}
                   >
-                    <Ionicons name="open-outline" size={18} color={BRAND_BLUE} />
-                    <AppText className="ml-2 font-bold text-base" style={{ color: BRAND_BLUE }}>
+                    <Ionicons name="open-outline" size={18} color="#DBEAFE" />
+                    <AppText className="ml-2 font-bold text-base text-white">
                       E'lonni ochish
                     </AppText>
                   </Pressable>
                   <Pressable
                     onPress={onClose}
-                    className="h-13 w-14 items-center justify-center rounded-2xl border border-white/16 bg-white/12 active:opacity-80"
+                    className="h-13 w-14 items-center justify-center rounded-2xl border active:opacity-80"
+                    style={{ borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(15,23,42,0.62)' }}
                   >
                     <Ionicons name="chevron-down" size={22} color="#fff" />
                   </Pressable>

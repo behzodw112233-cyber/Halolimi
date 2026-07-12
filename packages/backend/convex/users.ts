@@ -4,6 +4,19 @@ import { userStatus } from './schema';
 import { computeSellerTrust } from './trust';
 
 const HEARTBEAT_WRITE_MS = 2 * 60 * 1000;
+const accountKind = v.union(
+  v.literal('personal'),
+  v.literal('business'),
+  v.literal('farm'),
+  v.literal('dealer')
+);
+const approvalStatus = v.union(v.literal('pending'), v.literal('approved'), v.literal('rejected'));
+
+function officialKindForAccount(kind: 'personal' | 'business' | 'farm' | 'dealer') {
+  if (kind === 'farm') return 'farmer' as const;
+  if (kind === 'dealer') return 'dealer' as const;
+  return undefined;
+}
 
 export const list = query({
   args: {},
@@ -48,6 +61,156 @@ export const updateProfile = mutation({
     if (bio !== undefined) patch.bio = bio;
     if (avatar !== undefined) patch.avatar = avatar;
     await ctx.db.patch(id, patch);
+  },
+});
+
+export const accountSwitcher = query({
+  args: { ownerId: v.id('users'), activeId: v.optional(v.id('users')) },
+  handler: async (ctx, { ownerId, activeId }) => {
+    const owner = await ctx.db.get(ownerId);
+    if (!owner) return [];
+    const memberships = await ctx.db
+      .query('accountMemberships')
+      .withIndex('by_owner', (q) => q.eq('ownerId', ownerId))
+      .collect();
+    const accountIds = [ownerId, ...memberships.map((m) => m.accountId)].filter(
+      (id, index, arr) => arr.findIndex((x) => x === id) === index
+    );
+    const accounts = await Promise.all(
+      accountIds.map(async (id) => {
+        const user = await ctx.db.get(id);
+        if (!user) return null;
+        const membership = memberships.find((m) => m.accountId === id);
+        const listings = await ctx.db
+          .query('listings')
+          .withIndex('by_owner', (q) => q.eq('ownerId', id))
+          .collect();
+        const avatarUrl = user.avatar ? await ctx.storage.getUrl(user.avatar) : null;
+        return {
+          _id: user._id,
+          name: user.name,
+          phone: user.phone,
+          avatarUrl,
+          role: membership?.role ?? 'owner',
+          kind: membership?.kind ?? 'personal',
+          label: membership?.label ?? 'Shaxsiy profil',
+          approvalStatus: membership?.approvalStatus ?? (membership?.kind === 'farm' || membership?.kind === 'dealer' ? 'pending' : 'approved'),
+          isActive: (activeId ?? ownerId) === id,
+          listingsCount: listings.length,
+          activeListingsCount: listings.filter((l) => l.status === 'active').length,
+          isDealer: !!user.isDealer,
+          verified: !!(user.verifiedAt || user.telegramId),
+        };
+      })
+    );
+    return accounts.filter((x): x is NonNullable<typeof x> => x !== null);
+  },
+});
+
+export const createLinkedAccount = mutation({
+  args: {
+    ownerId: v.id('users'),
+    name: v.string(),
+    kind: accountKind,
+    label: v.optional(v.string()),
+  },
+  handler: async (ctx, { ownerId, name, kind, label }) => {
+    const owner = await ctx.db.get(ownerId);
+    if (!owner) throw new Error('Asosiy profil topilmadi');
+    const cleanedName = name.trim() || (kind === 'farm' ? 'Ferma profili' : kind === 'dealer' ? 'Diler profili' : 'Sotuvchi profili');
+    const needsApproval = kind === 'farm' || kind === 'dealer';
+    const officialKind = officialKindForAccount(kind);
+    const accountId = await ctx.db.insert('users', {
+      name: cleanedName,
+      phone: owner.phone,
+      listings: 0,
+      joined: new Date().toLocaleDateString('ru-RU'),
+      status: 'active',
+      bio:
+        kind === 'farm'
+          ? 'Ferma profili'
+          : kind === 'dealer'
+            ? 'Diler profili'
+            : kind === 'business'
+              ? 'Sotuvchi profili'
+              : undefined,
+      officialKind,
+      officialStatus: needsApproval ? 'pending' : 'approved',
+    });
+    await ctx.db.insert('accountMemberships', {
+      ownerId,
+      accountId,
+      role: 'owner',
+      kind,
+      label: label?.trim() || (kind === 'farm' ? 'Ferma' : kind === 'dealer' ? 'Diler' : 'Sotuvchi'),
+      approvalStatus: needsApproval ? 'pending' : 'approved',
+      createdAt: Date.now(),
+    });
+    return accountId;
+  },
+});
+
+export const accountApprovalRequests = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query('accountMemberships').collect();
+    const requests = rows.filter((m) => m.kind === 'farm' || m.kind === 'dealer');
+    const hydrated = await Promise.all(
+      requests.map(async (m) => {
+        const account = await ctx.db.get(m.accountId);
+        const owner = await ctx.db.get(m.ownerId);
+        if (!account || !owner) return null;
+        const listings = await ctx.db
+          .query('listings')
+          .withIndex('by_owner', (q) => q.eq('ownerId', m.accountId))
+          .collect();
+        return {
+          _id: m._id,
+          ownerId: m.ownerId,
+          accountId: m.accountId,
+          kind: m.kind,
+          label: m.label,
+          approvalStatus: m.approvalStatus ?? 'pending',
+          createdAt: m.createdAt,
+          reviewedAt: m.reviewedAt,
+          accountName: account.name,
+          phone: account.phone,
+          ownerName: owner.name,
+          listingsCount: listings.length,
+          isDealer: !!account.isDealer,
+          officialKind: account.officialKind,
+          officialStatus: account.officialStatus,
+        };
+      })
+    );
+    return hydrated
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => {
+        const order = { pending: 0, approved: 1, rejected: 2 } as const;
+        return order[a.approvalStatus] - order[b.approvalStatus] || b.createdAt - a.createdAt;
+      });
+  },
+});
+
+export const setAccountApproval = mutation({
+  args: {
+    membershipId: v.id('accountMemberships'),
+    status: approvalStatus,
+    officialKind: v.optional(v.union(v.literal('farmer'), v.literal('dealer'), v.literal('big_player'))),
+  },
+  handler: async (ctx, { membershipId, status, officialKind }) => {
+    const membership = await ctx.db.get(membershipId);
+    if (!membership) throw new Error('Soʻrov topilmadi');
+    const nextKind = officialKind ?? officialKindForAccount(membership.kind);
+    await ctx.db.patch(membershipId, {
+      approvalStatus: status,
+      reviewedAt: Date.now(),
+    });
+    await ctx.db.patch(membership.accountId, {
+      officialKind: status === 'approved' ? nextKind : nextKind,
+      officialStatus: status,
+      isDealer: status === 'approved' && nextKind === 'dealer',
+    });
   },
 });
 
@@ -151,7 +314,12 @@ export const setStatus = mutation({
 /** Mark / unmark a user as an official dealer (admin panel). */
 export const setDealer = mutation({
   args: { id: v.id('users'), isDealer: v.boolean() },
-  handler: (ctx, { id, isDealer }) => ctx.db.patch(id, { isDealer }),
+  handler: (ctx, { id, isDealer }) =>
+    ctx.db.patch(id, {
+      isDealer,
+      officialKind: isDealer ? 'dealer' : undefined,
+      officialStatus: isDealer ? 'approved' : undefined,
+    }),
 });
 
 /** Admin-managed public details for official dealer profiles. */

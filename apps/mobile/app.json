@@ -22,7 +22,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0B3D2E",
+        "backgroundColor": "#0A6CFF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -45,7 +45,7 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon-32.png"
     },
     "plugins": [
       "expo-router",
@@ -68,8 +68,8 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/icon.png",
-          "color": "#0B3D2E"
+          "icon": "./assets/images/android-icon-monochrome.png",
+          "color": "#0A6CFF"
         }
       ],
       "@stream-io/video-react-native-sdk",

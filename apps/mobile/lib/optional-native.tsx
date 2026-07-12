@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { View, type ViewProps } from 'react-native';
+import { Platform, View, type ViewProps } from 'react-native';
 
 type ExpoVideoModule = typeof import('expo-video');
 type ExpoAudioModule = typeof import('expo-audio');
@@ -13,10 +13,12 @@ try {
   ExpoVideo = null;
 }
 
-try {
-  ExpoAudio = require('expo-audio') as ExpoAudioModule;
-} catch {
-  ExpoAudio = null;
+if (Platform.OS !== 'web') {
+  try {
+    ExpoAudio = require('expo-audio') as ExpoAudioModule;
+  } catch {
+    ExpoAudio = null;
+  }
 }
 
 export const hasExpoVideo = !!ExpoVideo;

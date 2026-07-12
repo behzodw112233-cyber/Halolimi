@@ -39,6 +39,14 @@ async function markTelegramVerified(
 ): Promise<Id<'users'>> {
   const phone = normalizePhone(args.phone);
   const userId = await getOrCreateUser(ctx, phone, args.name);
+  return await markUserTelegramVerified(ctx, { userId, phone, name: args.name, telegramId: args.telegramId });
+}
+
+async function markUserTelegramVerified(
+  ctx: MutationCtx,
+  args: { userId: Id<'users'>; phone: string; name?: string; telegramId: string }
+): Promise<Id<'users'>> {
+  const phone = normalizePhone(args.phone);
   const now = Date.now();
 
   // One Telegram account → one Convex user. Detach from any previous row.
@@ -46,7 +54,7 @@ async function markTelegramVerified(
     .query('users')
     .withIndex('by_telegram', (q) => q.eq('telegramId', args.telegramId))
     .first();
-  if (previous && previous._id !== userId) {
+  if (previous && previous._id !== args.userId) {
     await ctx.db.patch(previous._id, {
       telegramId: undefined,
       phoneVerifiedAt: undefined,
@@ -54,11 +62,14 @@ async function markTelegramVerified(
     });
   }
 
-  const user = await ctx.db.get(userId);
+  const user = await ctx.db.get(args.userId);
+  if (!user) throw new Error('Foydalanuvchi topilmadi');
   // Legacy users already had telegramId from an earlier contact share.
   const alreadyVerified = !!(user?.verifiedAt || user?.telegramId);
 
-  await ctx.db.patch(userId, {
+  await ctx.db.patch(args.userId, {
+    phone,
+    name: user.name === 'Foydalanuvchi' && args.name?.trim() ? args.name.trim() : user.name,
     telegramId: args.telegramId,
     phoneVerifiedAt: user?.phoneVerifiedAt ?? now,
     verifiedAt: user?.verifiedAt ?? now,
@@ -67,7 +78,7 @@ async function markTelegramVerified(
   // First-time verification → inbox notice so the seller sees the badge payoff.
   if (!alreadyVerified) {
     await createForUser(ctx, {
-      userId,
+      userId: args.userId,
       icon: 'shield-checkmark',
       title: 'Sotuvchi tasdiqlandi',
       body: 'Telegram va telefon raqamingiz mos keldi. Endi eʼlonlaringizda «Tasdiqlangan sotuvchi» belgisi koʻrinadi.',
@@ -75,21 +86,25 @@ async function markTelegramVerified(
     });
   }
 
-  return userId;
+  return args.userId;
 }
 
 /** App: open a pending login handshake for a freshly generated token. */
 export const start = mutation({
-  args: { token: v.string() },
-  handler: async (ctx, { token }) => {
+  args: { token: v.string(), userId: v.optional(v.id('users')) },
+  handler: async (ctx, { token, userId }) => {
     const existing = await ctx.db
       .query('authSessions')
       .withIndex('by_token', (q) => q.eq('token', token))
       .first();
-    if (existing) return; // idempotent
+    if (existing) {
+      if (userId && !existing.userId) await ctx.db.patch(existing._id, { userId });
+      return;
+    }
     await ctx.db.insert('authSessions', {
       token,
       status: 'pending',
+      userId,
       createdAt: Date.now(),
     });
   },
@@ -130,11 +145,18 @@ export const verify = mutation({
     if (!telegramId) {
       throw new Error('Telegram ID majburiy');
     }
-    const userId = await markTelegramVerified(ctx, { phone, name, telegramId });
     const existing = await ctx.db
       .query('authSessions')
       .withIndex('by_token', (q) => q.eq('token', token))
       .first();
+    const userId = existing?.userId
+      ? await markUserTelegramVerified(ctx, {
+          userId: existing.userId,
+          phone,
+          name,
+          telegramId,
+        })
+      : await markTelegramVerified(ctx, { phone, name, telegramId });
     if (existing) {
       await ctx.db.patch(existing._id, { status: 'verified', userId });
     } else {

@@ -113,6 +113,31 @@ function normalizePaytechPayUrl(payUrl: string) {
   }
 }
 
+function paytechDevCheckoutUrl() {
+  const url = process.env.PAYTECH_DEV_CHECKOUT_URL;
+  return url ? url.replace(/\/$/, '') : null;
+}
+
+function createDevCheckoutOrder(args: {
+  externalId: string;
+  amount: number;
+  description: string;
+  method?: string;
+}): { orderId: string; payUrl: string; method: string } | null {
+  const baseUrl = paytechDevCheckoutUrl();
+  if (!baseUrl) return null;
+  const method = normalizePaytechMethod(args.method);
+  const qs = new URLSearchParams({
+    amount: String(args.amount),
+    product_name: args.description,
+  });
+  return {
+    orderId: args.externalId,
+    payUrl: `${baseUrl}/checkout/${method}/${args.externalId}?${qs.toString()}`,
+    method: methodLabel(method),
+  };
+}
+
 function normalizeMethod(method?: string) {
   if (!method || method === 'inPAY') return '';
   return method;
@@ -274,6 +299,9 @@ async function createPaytechOrder(args: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        // localtunnel returns an HTML reminder page unless API clients send this.
+        'bypass-tunnel-reminder': 'true',
+        'User-Agent': 'Halolmi-Convex-PayTech/1.0',
         ...(process.env.PAYTECH_SERVICE_TOKEN
           ? { Authorization: `Bearer ${process.env.PAYTECH_SERVICE_TOKEN}` }
           : {}),
@@ -287,7 +315,15 @@ async function createPaytechOrder(args: {
         callback_url: paytechCallbackUrl(),
       }),
     });
-    const data = (await res.json()) as PaytechCreateResponse;
+    const text = await res.text();
+    let data: PaytechCreateResponse;
+    try {
+      data = JSON.parse(text) as PaytechCreateResponse;
+    } catch {
+      const fallback = createDevCheckoutOrder(args);
+      if (fallback) return fallback;
+      throw new Error(`PayTech returned non-JSON (${res.status}): ${text.slice(0, 120)}`);
+    }
     const payUrl = data.payment_link ?? data.pay_url;
     const orderId = data.order_id ?? data.id ?? data.external_id;
     if (!res.ok || !payUrl || orderId === undefined || orderId === null) {
@@ -298,6 +334,10 @@ async function createPaytechOrder(args: {
       payUrl: normalizePaytechPayUrl(payUrl),
       method: methodLabel(data.payment_method ?? args.method ?? 'paytech'),
     };
+  } catch (error) {
+    const fallback = createDevCheckoutOrder(args);
+    if (fallback) return fallback;
+    throw error;
   } finally {
     clearTimeout(timeout);
   }

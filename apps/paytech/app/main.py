@@ -218,8 +218,19 @@ def checkout_html(title: str, body: str) -> str:
 
 
 @app.get("/checkout/{payment_method}/{order_id}", response_class=HTMLResponse)
-async def fake_checkout(payment_method: PaymentMethod, order_id: str) -> HTMLResponse:
+async def fake_checkout(payment_method: PaymentMethod, order_id: str, request: Request) -> HTMLResponse:
   order = dev_orders.get(order_id)
+  if not order:
+    amount = int(request.query_params.get("amount") or 0)
+    product_name = request.query_params.get("product_name") or "Halolmi to'lovi"
+    if amount > 0:
+      order = {
+        "amount": amount,
+        "payment_method": payment_method,
+        "product_name": product_name,
+        "created_at": int(time.time()),
+      }
+      dev_orders[order_id] = order
   if not order:
     body = """
       <div class="brand">PayTech sandbox</div>

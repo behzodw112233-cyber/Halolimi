@@ -3,7 +3,7 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Card, Chip } from '@heroui/react';
 import { useMutation, useQuery } from 'convex/react';
-import { Trash2 } from 'lucide-react';
+import { ShieldCheck, Trash2 } from 'lucide-react';
 import { ChartCard } from '@/components/chart-card';
 import { AreaMini, BarMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
@@ -13,10 +13,13 @@ function initials(name: string) {
 
 export default function FoydalanuvchilarPage() {
   const users = useQuery(api.users.list) ?? [];
+  const requests = useQuery(api.users.accountApprovalRequests) ?? [];
   const overview = useQuery(api.stats.overview);
   const setStatus = useMutation(api.users.setStatus);
   const setDealer = useMutation(api.users.setDealer);
+  const setAccountApproval = useMutation(api.users.setAccountApproval);
   const removeUser = useMutation(api.users.remove);
+  const pendingRequests = requests.filter((r) => r.approvalStatus === 'pending');
 
   const monthly = overview?.usersMonthly ?? [];
   const activity = overview
@@ -28,6 +31,124 @@ export default function FoydalanuvchilarPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader title="Foydalanuvchilar" subtitle={`Jami ${users.length} ta roʻyxatdan oʻtgan foydalanuvchi`} />
+
+      <Card className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/70 shadow-none">
+        <Card.Content className="p-5">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <ShieldCheck size={20} className="text-amber-700" />
+                <p className="font-semibold text-neutral-900">Katta profillar tekshiruvi</p>
+                {pendingRequests.length > 0 && (
+                  <Chip variant="soft" color="warning" size="sm">
+                    {pendingRequests.length} pending
+                  </Chip>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-neutral-600">
+                Fermer, diler yoki big player maqomi Telegram tasdiqdan alohida. Buni admin o'zi tasdiqlaydi.
+              </p>
+            </div>
+          </div>
+
+          {requests.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-amber-200 bg-white/60 px-4 py-5 text-sm text-neutral-500">
+              Hozircha fermer/diler so'rovlari yo'q.
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {requests.slice(0, 8).map((request) => (
+                <div
+                  key={request._id}
+                  className="flex flex-col gap-3 rounded-xl border border-white bg-white px-4 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-neutral-900">{request.accountName}</p>
+                      <Chip
+                        variant="soft"
+                        color={
+                          request.approvalStatus === 'approved'
+                            ? 'success'
+                            : request.approvalStatus === 'rejected'
+                              ? 'danger'
+                              : 'warning'
+                        }
+                        size="sm"
+                      >
+                        {request.approvalStatus === 'approved'
+                          ? 'Tasdiqlandi'
+                          : request.approvalStatus === 'rejected'
+                            ? 'Rad etildi'
+                            : 'Pending'}
+                      </Chip>
+                      <Chip variant="soft" size="sm">
+                        {request.kind === 'farm' ? 'Fermer soʻrovi' : 'Diler soʻrovi'}
+                      </Chip>
+                    </div>
+                    <p className="mt-1 text-sm text-neutral-500">
+                      Owner: {request.ownerName} · {request.phone} · {request.listingsCount} e'lon
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onPress={() =>
+                        setAccountApproval({
+                          membershipId: request._id,
+                          status: 'approved',
+                          officialKind: 'farmer',
+                        })
+                      }
+                    >
+                      Fermer qilish
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onPress={() =>
+                        setAccountApproval({
+                          membershipId: request._id,
+                          status: 'approved',
+                          officialKind: 'dealer',
+                        })
+                      }
+                    >
+                      Diler qilish
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onPress={() =>
+                        setAccountApproval({
+                          membershipId: request._id,
+                          status: 'approved',
+                          officialKind: 'big_player',
+                        })
+                      }
+                    >
+                      Big player
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="danger-soft"
+                      onPress={() =>
+                        setAccountApproval({
+                          membershipId: request._id,
+                          status: 'rejected',
+                        })
+                      }
+                    >
+                      Rad etish
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card.Content>
+      </Card>
 
       {/* Charts */}
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
@@ -71,6 +192,20 @@ export default function FoydalanuvchilarPage() {
                           {u.isDealer && (
                             <Chip variant="soft" color="accent" size="sm">
                               Diler
+                            </Chip>
+                          )}
+                          {u.officialStatus === 'pending' && (
+                            <Chip variant="soft" color="warning" size="sm">
+                              Admin tekshiruvda
+                            </Chip>
+                          )}
+                          {u.officialStatus === 'approved' && u.officialKind && !u.isDealer && (
+                            <Chip variant="soft" color="accent" size="sm">
+                              {u.officialKind === 'farmer'
+                                ? 'Fermer'
+                                : u.officialKind === 'big_player'
+                                  ? 'Big player'
+                                  : 'Diler'}
                             </Chip>
                           )}
                         </div>

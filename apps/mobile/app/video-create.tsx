@@ -18,6 +18,7 @@ type PickedVideo = {
   uri: string;
   mimeType?: string;
   duration?: number;
+  fileSize?: number;
 };
 
 const THUMBNAIL_MOMENTS = [1, 2, 4] as const;
@@ -34,6 +35,16 @@ function videoFileName(uri: string) {
 function cloudflareThumbnailAt(url: string, second: number) {
   const joiner = url.includes('?') ? '&' : '?';
   return `${url}${joiner}time=${second}s&height=720`;
+}
+
+function durationToSeconds(duration?: number) {
+  if (!duration || !Number.isFinite(duration)) return undefined;
+  return Math.max(1, Math.round(duration > 1000 ? duration / 1000 : duration));
+}
+
+function formatMb(bytes?: number) {
+  if (!bytes || !Number.isFinite(bytes)) return null;
+  return `${(bytes / 1024 / 1024).toFixed(bytes > 20 * 1024 * 1024 ? 0 : 1)} MB`;
 }
 
 export default function VideoCreate() {
@@ -69,13 +80,13 @@ export default function VideoCreate() {
     }
     const res = await ImagePicker.launchCameraAsync({
       mediaTypes: ['videos'],
-      quality: 0.7,
+      quality: 0.45,
       videoMaxDuration: 45,
-      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Low,
     });
     if (!res.canceled) {
       const asset = res.assets[0];
-      setVideo({ uri: asset.uri, mimeType: asset.mimeType, duration: asset.duration ?? undefined });
+      setVideo({ uri: asset.uri, mimeType: asset.mimeType, duration: asset.duration ?? undefined, fileSize: asset.fileSize ?? undefined });
     }
   };
 
@@ -92,13 +103,13 @@ export default function VideoCreate() {
     }
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['videos'],
-      quality: 0.7,
+      quality: 0.45,
       videoMaxDuration: 45,
-      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium,
+      videoQuality: ImagePicker.UIImagePickerControllerQualityType.Low,
     });
     if (!res.canceled) {
       const asset = res.assets[0];
-      setVideo({ uri: asset.uri, mimeType: asset.mimeType, duration: asset.duration ?? undefined });
+      setVideo({ uri: asset.uri, mimeType: asset.mimeType, duration: asset.duration ?? undefined, fileSize: asset.fileSize ?? undefined });
     }
   };
 
@@ -117,6 +128,7 @@ export default function VideoCreate() {
       category,
       city: city.trim() || undefined,
       price: price.trim() || undefined,
+      duration: durationToSeconds(video.duration),
     };
 
     setBusy(true);
@@ -234,6 +246,18 @@ export default function VideoCreate() {
                   Korish
                 </AppText>
               </Pressable>
+            </View>
+
+            <View className="mt-3 flex-row items-center rounded-2xl bg-blue-50 px-3.5 py-3">
+              <View className="h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE + '18' }}>
+                <Ionicons name="flash-outline" size={18} color={BRAND_BLUE} />
+              </View>
+              <View className="ml-3 flex-1">
+                <AppText className="font-bold text-sm text-foreground">Tez yuklash uchun optimallashtirildi</AppText>
+                <AppText className="mt-0.5 text-xs leading-4 text-muted">
+                  {formatMb(video.fileSize) ? `${formatMb(video.fileSize)} · ` : ''}Cloudflare videoni HD formatlarga tayyorlaydi.
+                </AppText>
+              </View>
             </View>
 
             <Field label="Muqova rasmi">

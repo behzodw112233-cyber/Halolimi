@@ -285,23 +285,33 @@ function ReelSlide({
   const onChat = async () => {
     if (requireLogin()) return;
     recordTap({ reelId: reel._id, kind: 'chat' }).catch(() => {});
-    if (reel.listingId) {
-      try {
-        const threadId = await openThread({ meId: userId!, listingId: reel.listingId });
-        router.push({
-          pathname: '/chat/[id]',
-          params: {
-            id: threadId,
-            name: reel.sellerName ?? 'Sotuvchi',
-            sellerId: reel.sellerId ?? '',
-          },
-        });
-        return;
-      } catch {
-        /* profile fallback below */
-      }
+    if (!reel.sellerId && !reel.listingId) {
+      Alert.alert('Xatolik', 'Sotuvchi topilmadi.');
+      return;
     }
-    if (reel.sellerId) router.push({ pathname: '/seller/[id]', params: { id: reel.sellerId } });
+    if (reel.sellerId === userId) {
+      Alert.alert('Bu sizning videoingiz', 'O`zingizga chat yozib bo`lmaydi.');
+      return;
+    }
+    try {
+      const threadId = await openThread({
+        meId: userId!,
+        listingId: reel.listingId ?? undefined,
+        sellerId: reel.sellerId ?? undefined,
+      });
+      router.push({
+        pathname: '/chat/[id]',
+        params: {
+          id: threadId,
+          name: reel.sellerName ?? 'Sotuvchi',
+          sellerId: reel.sellerId ?? '',
+          reelId: reel._id,
+          prefill: `Assalomu alaykum, Video bozor dagi "${reel.title}" haqida yozayapman.`,
+        },
+      });
+    } catch {
+      Alert.alert('Xatolik', 'Suhbatni ochib bo`lmadi.');
+    }
   };
 
   const onCall = () => {

@@ -8,9 +8,9 @@ const TYPING_MS = 5_000; // typing indicator lifetime
 const ONLINE_MS = 60_000; // "online" if seen within a minute
 
 /** Deterministic key so opening the same buyer↔seller↔listing chat reuses one thread. */
-function threadKey(a: Id<'users'>, b: Id<'users'> | undefined, listingId: Id<'listings'>) {
+function threadKey(a: Id<'users'>, b: Id<'users'> | undefined, listingId?: Id<'listings'>) {
   const pair = b ? [a, b].sort().join('-') : a;
-  return `${listingId}:${pair}`;
+  return listingId ? `${listingId}:${pair}` : `seller:${pair}`;
 }
 
 /** The current member row + the counterpart's member row for a thread. */
@@ -29,11 +29,21 @@ async function memberRows(ctx: MutationCtx, threadId: Id<'threads'>, userId: Id<
  * navigate to. Creates member rows for both sides so each sees the other's name.
  */
 export const openThread = mutation({
-  args: { meId: v.id('users'), listingId: v.id('listings') },
-  handler: async (ctx, { meId, listingId }) => {
-    const listing = await ctx.db.get(listingId);
-    if (!listing) throw new Error('Eʼlon topilmadi');
-    const sellerId = listing.ownerId && listing.ownerId !== meId ? listing.ownerId : undefined;
+  args: {
+    meId: v.id('users'),
+    listingId: v.optional(v.id('listings')),
+    sellerId: v.optional(v.id('users')),
+  },
+  handler: async (ctx, { meId, listingId, sellerId: sellerIdArg }) => {
+    const listing = listingId ? await ctx.db.get(listingId) : null;
+    if (listingId && !listing) throw new Error('Eʼlon topilmadi');
+    const sellerId =
+      listing?.ownerId && listing.ownerId !== meId
+        ? listing.ownerId
+        : sellerIdArg && sellerIdArg !== meId
+          ? sellerIdArg
+          : undefined;
+    if (!listing && !sellerId) throw new Error('Sotuvchi topilmadi');
     const key = threadKey(meId, sellerId, listingId);
 
     const existing = await ctx.db
@@ -45,7 +55,7 @@ export const openThread = mutation({
     const threadId = await ctx.db.insert('threads', {
       key,
       listingId,
-      title: listing.title,
+      title: listing?.title ?? 'Video bozor',
       lastText: '',
       lastAt: Date.now(),
     });
@@ -57,7 +67,7 @@ export const openThread = mutation({
       threadId,
       userId: meId,
       otherId: sellerId,
-      otherName: seller?.name ?? listing.sellerName,
+      otherName: seller?.name ?? listing?.sellerName ?? 'Sotuvchi',
       unread: 0,
       lastReadAt: Date.now(),
     });
@@ -117,12 +127,23 @@ export const list = query({
       sorted.map(async (m) => {
         const imageUrl = m.imageId ? await ctx.storage.getUrl(m.imageId) : null;
         const audioUrl = m.audioId ? await ctx.storage.getUrl(m.audioId) : null;
+        let reelPreview: { id: Id<'reels'>; title: string; thumbUrl: string | null } | null = null;
+        if (m.reelId) {
+          const reel = await ctx.db.get(m.reelId);
+          if (reel) {
+            reelPreview = {
+              id: reel._id,
+              title: reel.title,
+              thumbUrl: reel.thumbnailUrl ?? (reel.thumbId ? await ctx.storage.getUrl(reel.thumbId) : null),
+            };
+          }
+        }
         let replyPreview: { name: string; text: string } | null = null;
         if (m.replyToId) {
           const r = await ctx.db.get(m.replyToId);
           if (r) replyPreview = { name: r.senderName, text: r.deletedAt ? 'xabar' : r.text };
         }
-        return { ...m, imageUrl, audioUrl, replyPreview };
+        return { ...m, imageUrl, audioUrl, reelPreview, replyPreview };
       })
     );
   },
@@ -167,6 +188,7 @@ export const send = mutation({
     imageId: v.optional(v.id('_storage')),
     audioId: v.optional(v.id('_storage')),
     audioDuration: v.optional(v.number()),
+    reelId: v.optional(v.id('reels')),
     replyToId: v.optional(v.id('messages')),
   },
   handler: async (ctx, args) => {
@@ -182,6 +204,7 @@ export const send = mutation({
       imageId: args.imageId,
       audioId: args.audioId,
       audioDuration: args.audioDuration,
+      reelId: args.reelId,
       replyToId: args.replyToId,
       createdAt: Date.now(),
     });
@@ -284,6 +307,6 @@ export const deleteMessage = mutation({
   handler: async (ctx, { messageId, userId }) => {
     const msg = await ctx.db.get(messageId);
     if (!msg || msg.senderId !== userId) throw new Error('Ruxsat yoʻq');
-    await ctx.db.patch(messageId, { deletedAt: Date.now(), text: '', imageId: undefined, audioId: undefined });
+    await ctx.db.patch(messageId, { deletedAt: Date.now(), text: '', imageId: undefined, audioId: undefined, reelId: undefined });
   },
 });

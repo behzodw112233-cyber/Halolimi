@@ -144,12 +144,56 @@ function VoiceBubble({ uri, duration, mine }: { uri: string; duration: number; m
   );
 }
 
+function ReelReplyPreview({
+  preview,
+  mine,
+}: {
+  preview: NonNullable<Msg['reelPreview']>;
+  mine: boolean;
+}) {
+  const router = useRouter();
+
+  return (
+    <View className={`mb-2 ${mine ? 'items-end' : 'items-start'}`}>
+      <Pressable
+        onPress={() => router.push({ pathname: '/reels', params: { start: preview.id } } as never)}
+        className="overflow-hidden rounded-2xl bg-black active:opacity-85"
+        style={{ width: 128, aspectRatio: 9 / 14 }}
+      >
+        {preview.thumbUrl ? (
+          <Image
+            source={{ uri: preview.thumbUrl }}
+            contentFit="cover"
+            style={{ position: 'absolute', width: '100%', height: '100%' }}
+          />
+        ) : (
+          <View className="h-full w-full items-center justify-center bg-neutral-900">
+            <Ionicons name="videocam" size={26} color="#fff" />
+          </View>
+        )}
+        <View className="absolute inset-0 items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.24)' }}>
+          <View className="h-11 w-11 items-center justify-center rounded-full bg-black/55">
+            <Ionicons name="play" size={23} color="#fff" style={{ marginLeft: 3 }} />
+          </View>
+        </View>
+        <View className="absolute bottom-0 left-0 right-0 p-2" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
+          <AppText className="font-semibold text-xs text-white" numberOfLines={2}>
+            {preview.title}
+          </AppText>
+        </View>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function Conversation() {
   const router = useRouter();
-  const { id, name = 'Sotuvchi', sellerId } = useLocalSearchParams<{
+  const { id, name = 'Sotuvchi', sellerId, prefill, reelId } = useLocalSearchParams<{
     id: string;
     name?: string;
     sellerId?: string;
+    prefill?: string;
+    reelId?: string;
   }>();
   const threadId = String(id);
   const { userId, user } = useAuth();
@@ -179,6 +223,10 @@ export default function Conversation() {
   const [reportOpen, setReportOpen] = useState(false);
   const [stars, setStars] = useState(5);
   const [reviewText, setReviewText] = useState('');
+  const [pendingReelId, setPendingReelId] = useState<Id<'reels'> | null>(
+    reelId ? (reelId as Id<'reels'>) : null
+  );
+  const prefillAppliedRef = useRef(false);
   const lastTypedRef = useRef(0);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 200);
@@ -192,6 +240,12 @@ export default function Conversation() {
 
   // Newest first for an inverted list (feels like every chat app).
   const data = useMemo(() => (messages ? [...messages].reverse() : []), [messages]);
+
+  useEffect(() => {
+    if (prefillAppliedRef.current || !prefill) return;
+    prefillAppliedRef.current = true;
+    setDraft(String(prefill));
+  }, [prefill]);
 
   // Clear our unread badge whenever the thread opens or a new message lands.
   useEffect(() => {
@@ -223,7 +277,15 @@ export default function Conversation() {
       if (edit) {
         await editMsg({ messageId: edit.id, userId, text });
       } else {
-        await send({ threadId, senderId: userId, senderName, text, replyToId: reply?.id });
+        await send({
+          threadId,
+          senderId: userId,
+          senderName,
+          text,
+          replyToId: reply?.id,
+          reelId: pendingReelId ?? undefined,
+        });
+        setPendingReelId(null);
       }
     } catch {
       setDraft(text); // restore on failure so nothing is lost
@@ -231,7 +293,7 @@ export default function Conversation() {
     } finally {
       setSending(false);
     }
-  }, [draft, userId, sending, replyTo, editing, editMsg, send, threadId, senderName]);
+  }, [draft, userId, sending, replyTo, editing, editMsg, send, threadId, senderName, pendingReelId]);
 
   const attachImage = useCallback(async () => {
     if (!userId || sending) return;
@@ -396,6 +458,9 @@ export default function Conversation() {
                 {item.replyPreview.text}
               </AppText>
             </View>
+          ) : null}
+          {item.reelPreview && !deleted ? (
+            <ReelReplyPreview preview={item.reelPreview} mine={mine} />
           ) : null}
           {item.imageUrl && !deleted ? (
             <Image

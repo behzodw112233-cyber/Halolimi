@@ -254,9 +254,6 @@ export default function VideoCreate() {
                       <AppText className="mt-1 font-bold text-base" style={{ color: active ? '#fff' : '#334155' }}>
                         {second}s
                       </AppText>
-                      <AppText className="text-[11px]" style={{ color: active ? 'rgba(255,255,255,0.78)' : '#64748B' }}>
-                        Cloudflare
-                      </AppText>
                     </Pressable>
                   );
                 })}

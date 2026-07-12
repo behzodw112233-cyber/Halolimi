@@ -279,6 +279,7 @@ export default defineSchema({
     imageId: v.optional(v.id('_storage')), // image attachment
     audioId: v.optional(v.id('_storage')), // voice message
     audioDuration: v.optional(v.number()), // voice message length, seconds
+    reelId: v.optional(v.id('reels')), // video context from Video bozor
     replyToId: v.optional(v.id('messages')), // quoted message
     editedAt: v.optional(v.number()),
     deletedAt: v.optional(v.number()), // soft delete → "xabar oʻchirildi"

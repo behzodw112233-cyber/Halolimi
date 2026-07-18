@@ -8,7 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Chip } from 'heroui-native';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,9 +19,11 @@ import {
   StyleSheet,
   TextInput,
   View,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
+import { EmbeddedStripeCheckout } from '../../components/embedded-stripe-checkout';
 import { Logo } from '../../components/logo';
 import { VerifiedSellerBadge } from '../../components/trust-safety';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
@@ -32,13 +34,9 @@ import { browserCheckoutUrl } from '../../lib/checkout-url';
 // Set EXPO_PUBLIC_BOT_USERNAME (without @) so Telegram verify deep link works.
 const BOT_USERNAME = process.env.EXPO_PUBLIC_BOT_USERNAME ?? '';
 
-const METHOD_MAP: Record<string, string> = { click: 'click', payme: 'payme', uzcard: 'atmos' };
+const METHOD_MAP: Record<string, string> = { stripe: 'stripe' };
 
-const PAYMENTS = [
-  { id: 'uzcard', label: 'Uzcard/Humo', color: '#1E3A8A' },
-  { id: 'payme', label: 'Payme', color: '#33CCCC' },
-  { id: 'click', label: 'Click', color: BRAND_BLUE },
-];
+const PAYMENTS = [{ id: 'stripe', label: 'Stripe test card', color: '#635BFF' }];
 
 const TOPUP_PRESETS = [10000, 25000, 50000, 100000];
 function makeToken(): string {
@@ -80,15 +78,15 @@ export default function Profile() {
     api.reels.bySeller,
     userId ? { sellerId: userId, userId, limit: 8 } : 'skip'
   ) ?? [];
-  const settings = useQuery(api.settings.get);
   const accountOwnerId = rootUserId ?? userId;
   const accounts = useQuery(
     api.users.accountSwitcher,
     accountOwnerId && userId ? { ownerId: accountOwnerId, activeId: userId } : 'skip'
   ) ?? [];
 
-  // --- inPAY wallet top-up ---
-  const createInvoice = useAction(api.inpay.createInvoice);
+  // --- Stripe wallet top-up ---
+  const createInvoice = useAction(api.stripe.createInvoice);
+  const refreshInvoice = useAction(api.stripe.refreshInvoice);
   const startTelegramSession = useMutation(api.authTelegram.start);
   const createLinkedAccount = useMutation(api.users.createLinkedAccount);
   const [topupOpen, setTopupOpen] = useState(false);
@@ -98,22 +96,17 @@ export default function Profile() {
   const [newAccountKind, setNewAccountKind] = useState<'business' | 'farm' | 'dealer'>('business');
   const [amount, setAmount] = useState('');
   const [orderId, setOrderId] = useState<string | null>(null);
+  const [topupClientSecret, setTopupClientSecret] = useState<string | null>(null);
   const [verifyToken, setVerifyToken] = useState<string | null>(null);
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [accountBusy, setAccountBusy] = useState(false);
-  const invoice = useQuery(api.inpay.byOrder, orderId ? { orderId } : 'skip');
+  const invoice = useQuery(api.stripe.byOrder, orderId ? { orderId } : 'skip');
   const verifyStatus = useQuery(
     api.authTelegram.status,
     verifyToken ? { token: verifyToken } : 'skip'
   );
-  const enabledPayments = PAYMENTS.filter((p) => {
-    if (!settings) return true;
-    if (p.id === 'payme') return settings.payme;
-    if (p.id === 'click') return settings.click;
-    if (p.id === 'uzcard') return settings.uzcard;
-    return true;
-  });
+  const enabledPayments = PAYMENTS;
 
   const activeAccount = accounts.find((a) => a._id === userId) ?? accounts[0];
 
@@ -121,9 +114,12 @@ export default function Profile() {
     if (!invoice) return;
     if (invoice.status === 'success') {
       Alert.alert('Toʻldirildi', `Hisobingizga ${fmtSom(invoice.amount)} qoʻshildi.`);
+      setTopupOpen(false);
+      setTopupClientSecret(null);
       setTimeout(() => setOrderId(null), 0);
     } else if (invoice.status === 'failed' || invoice.status === 'cancelled') {
       Alert.alert('Toʻlov amalga oshmadi', 'Qayta urinib koʻring.');
+      setTopupClientSecret(null);
       setTimeout(() => setOrderId(null), 0);
     }
   }, [invoice]);
@@ -139,25 +135,42 @@ export default function Profile() {
     }
   }, [verifyStatus, adoptSession]);
 
-  const startTopup = async (som: number, methodId = 'inPAY') => {
+  const startTopup = async (som: number, methodId = 'stripe') => {
     if (!userId || !Number.isFinite(som) || som < 1000 || busy) return;
     setBusy(true);
     try {
-      const { orderId: oid, payUrl } = await createInvoice({
+      const result = await createInvoice({
         userId,
         amount: Math.round(som),
-        method: METHOD_MAP[methodId] ?? 'inPAY',
+        method: METHOD_MAP[methodId] ?? 'stripe',
+        embedded: Platform.OS === 'web',
       });
-      setOrderId(oid);
-      setTopupOpen(false);
+      setOrderId(result.orderId);
       setAmount('');
-      await WebBrowser.openBrowserAsync(browserCheckoutUrl(payUrl));
+      if (Platform.OS === 'web') {
+        if (!result.clientSecret) throw new Error('Stripe embedded checkout client secret topilmadi.');
+        setTopupClientSecret(result.clientSecret);
+      } else if (result.payUrl) {
+        setTopupOpen(false);
+        await WebBrowser.openBrowserAsync(browserCheckoutUrl(result.payUrl));
+      }
     } catch (e) {
       Alert.alert('Xatolik', e instanceof Error ? e.message : 'Toʻlovni yaratib boʻlmadi.');
     } finally {
       setBusy(false);
     }
   };
+
+  const closeTopup = useCallback(() => {
+    setTopupClientSecret(null);
+    setTopupOpen(false);
+  }, []);
+
+  const completeTopup = useCallback(async () => {
+    if (orderId) await refreshInvoice({ orderId });
+    setTopupClientSecret(null);
+    setTopupOpen(false);
+  }, [orderId, refreshInvoice]);
 
   // Not logged in → login prompt.
   if (!userId) {
@@ -733,16 +746,25 @@ export default function Profile() {
         </Modal>
 
         {/* Top-up sheet */}
-        <Modal visible={topupOpen} transparent animationType="slide" onRequestClose={() => setTopupOpen(false)}>
-          <Pressable className="flex-1 bg-black/40" onPress={() => setTopupOpen(false)} />
-          <View className="rounded-t-3xl bg-background px-5 pb-8 pt-5">
-            <View className="mb-4 flex-row items-center justify-between">
+        <Modal visible={topupOpen} transparent animationType="slide" onRequestClose={closeTopup}>
+          <View className="flex-1 justify-end bg-black/40">
+          <Pressable className="absolute inset-0" onPress={closeTopup} />
+          <View className="max-h-[96vh] rounded-t-3xl bg-background px-4 pb-4 pt-4 shadow-2xl md:px-5">
+            <View className="mb-3 flex-row items-center justify-between">
               <AppText className="font-bold text-xl text-foreground">Hisobni toʻldirish</AppText>
-              <Pressable onPress={() => setTopupOpen(false)} hitSlop={10}>
+              <Pressable onPress={closeTopup} hitSlop={10}>
                 <Ionicons name="close" size={26} color="#9ca3af" />
               </Pressable>
             </View>
 
+            {topupClientSecret ? (
+              <EmbeddedStripeCheckout
+                clientSecret={topupClientSecret}
+                onComplete={completeTopup}
+                onCancel={closeTopup}
+              />
+            ) : (
+            <View>
             <View className="mb-4 flex-row flex-wrap gap-2">
               {TOPUP_PRESETS.map((p) => (
                 <Pressable
@@ -806,8 +828,11 @@ export default function Profile() {
               </View>
             ) : null}
             <AppText className="mt-3 text-center text-xs text-muted">
-              Toʻlov inPAY orqali — Click, Payme yoki karta
+              Toʻlov Stripe sandbox checkout orqali
             </AppText>
+            </View>
+            )}
+          </View>
           </View>
         </Modal>
       </SafeAreaView>

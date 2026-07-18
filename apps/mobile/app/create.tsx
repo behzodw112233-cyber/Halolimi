@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -530,28 +530,66 @@ function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: (
 function OtpSheet({ open, phone, onClose, onVerified }: { open: boolean; phone: string; onClose: () => void; onVerified: () => void }) {
   const [code, setCode] = useState('');
   const [seconds, setSeconds] = useState(55);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [devCode, setDevCode] = useState<string | null>(null);
+  const [checkedCode, setCheckedCode] = useState('');
   const inputRef = useRef<TextInput>(null);
+  const requestOtp = useAction(api.smsOtp.request);
+  const verifyOtp = useAction(api.smsOtp.verify);
 
   useEffect(() => {
     if (!open) {
       const reset = setTimeout(() => {
         setCode('');
         setSeconds(55);
+        setError('');
+        setDevCode(null);
+        setCheckedCode('');
       }, 0);
       return () => clearTimeout(reset);
     }
+    setBusy(true);
+    requestOtp({ phone, purpose: 'listing' })
+      .then((result) => setDevCode(result.devCode ?? null))
+      .catch(() => setError("SMS kod yuborilmadi. Qayta urinib ko'ring."))
+      .finally(() => setBusy(false));
     const id = setInterval(() => setSeconds((s) => (s > 0 ? s - 1 : 0)), 1000);
     const t = setTimeout(() => inputRef.current?.focus(), 250);
     return () => { clearInterval(id); clearTimeout(t); };
-  }, [open]);
+  }, [open, phone, requestOtp]);
 
   useEffect(() => {
-    if (code.length === 4) {
+    if (code.length === 6 && code !== checkedCode && !busy) {
+      setBusy(true);
+      setError('');
+      setCheckedCode(code);
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      const t = setTimeout(onVerified, 200);
+      const t = setTimeout(() => {
+        verifyOtp({ phone, code, purpose: 'listing' })
+          .then((result) => {
+            if (result.ok) onVerified();
+            else setError("Kod noto'g'ri yoki muddati tugagan.");
+          })
+          .catch(() => setError("Kodni tekshirib bo'lmadi."))
+          .finally(() => setBusy(false));
+      }, 200);
       return () => clearTimeout(t);
     }
-  }, [code, onVerified]);
+  }, [busy, checkedCode, code, onVerified, phone, verifyOtp]);
+
+  const resend = () => {
+    if (seconds > 0 || busy) return;
+    setBusy(true);
+    setCode('');
+    setCheckedCode('');
+    setError('');
+    setSeconds(55);
+    requestOtp({ phone, purpose: 'listing' })
+      .then((result) => setDevCode(result.devCode ?? null))
+      .catch(() => setError("SMS kod yuborilmadi. Qayta urinib ko'ring."))
+      .finally(() => setBusy(false));
+  };
 
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
@@ -568,7 +606,7 @@ function OtpSheet({ open, phone, onClose, onVerified }: { open: boolean; phone: 
         </AppText>
 
         <Pressable onPress={() => inputRef.current?.focus()} className="mb-4 flex-row gap-3">
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1, 2, 3, 4, 5].map((i) => (
             <View key={i} className="h-16 flex-1 items-center justify-center rounded-xl border-2"
               style={{ borderColor: code.length === i ? BRAND_BLUE : '#E5E7EB' }}>
               <AppText className="text-2xl font-semibold text-foreground">{code[i] ?? ''}</AppText>
@@ -576,13 +614,22 @@ function OtpSheet({ open, phone, onClose, onVerified }: { open: boolean; phone: 
           ))}
         </Pressable>
 
-        <TextInput ref={inputRef} value={code} onChangeText={(t) => setCode(t.replace(/[^0-9]/g, '').slice(0, 4))}
-          keyboardType="number-pad" maxLength={4} style={{ position: 'absolute', opacity: 0, height: 1, width: 1 }} />
+        <TextInput ref={inputRef} value={code} onChangeText={(t) => {
+          setError('');
+          setCode(t.replace(/[^0-9]/g, '').slice(0, 6));
+        }}
+          keyboardType="number-pad" maxLength={6} style={{ position: 'absolute', opacity: 0, height: 1, width: 1 }} />
+
+        {devCode ? (
+          <AppText className="mb-2 text-base font-semibold" style={{ color: BRAND_BLUE }}>Dev OTP: {devCode}</AppText>
+        ) : null}
+        {error ? <AppText className="mb-2 text-base text-red-500">{error}</AppText> : null}
+        {busy ? <AppText className="mb-2 text-base text-muted">Tekshirilmoqda...</AppText> : null}
 
         {seconds > 0 ? (
           <AppText className="text-base text-muted">{seconds} dan keyin takroran yuborish</AppText>
         ) : (
-          <Pressable onPress={() => setSeconds(55)}>
+          <Pressable onPress={resend}>
             <AppText className="text-base font-medium" style={{ color: BRAND_BLUE }}>Kodni qayta yuborish</AppText>
           </Pressable>
         )}

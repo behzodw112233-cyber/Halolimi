@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '@halolmia/backend/convex/_generated/api';
 import { useQuery } from 'convex/react';
 import { Tabs, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, View, useWindowDimensions, type ColorValue } from 'react-native';
+import { Platform, Pressable, StyleSheet, View, useWindowDimensions, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { BRAND_BLUE } from '../../constants/theme';
@@ -11,8 +11,7 @@ import { useAuth } from '../../lib/auth';
 /** Chat tab icon with a red unread-count badge, summed across all threads. */
 function ChatTabIcon({ color, size }: { color: ColorValue; size: number }) {
   const { userId } = useAuth();
-  const threads = useQuery(api.messages.myThreads, userId ? { userId } : 'skip');
-  const unread = threads?.reduce((sum, t) => sum + t.unread, 0) ?? 0;
+  const unread = useQuery(api.messages.unreadTotal, userId ? { userId } : 'skip') ?? 0;
   return (
     <View>
       <Ionicons name="paper-plane-outline" size={size} color={color} />
@@ -133,6 +132,28 @@ export default function TabsLayout() {
   );
 }
 
+const tabBarShadow =
+  Platform.OS === 'web'
+    ? ({ boxShadow: '0 -6px 16px rgba(15, 23, 42, 0.10)' } as any)
+    : {
+        shadowColor: '#0F172A',
+        shadowOpacity: 0.1,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: -6 },
+        elevation: 14,
+      };
+
+const sellBubbleShadow =
+  Platform.OS === 'web'
+    ? ({ boxShadow: '0 6px 12px rgba(10, 108, 255, 0.18)' } as any)
+    : {
+        shadowColor: BRAND_BLUE,
+        shadowOpacity: 0.24,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 8,
+      };
+
 const styles = StyleSheet.create({
   tabBar: {
     position: 'absolute',
@@ -142,11 +163,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 0,
     backgroundColor: 'rgba(255,255,255,0.96)',
     overflow: 'visible',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: -6 },
-    elevation: 14,
+    ...tabBarShadow,
   },
   tabItem: {
     minWidth: 0,
@@ -158,10 +175,6 @@ const styles = StyleSheet.create({
   },
   sellBubble: {
     backgroundColor: BRAND_BLUE,
-    shadowColor: BRAND_BLUE,
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
+    ...sellBubbleShadow,
   },
 });

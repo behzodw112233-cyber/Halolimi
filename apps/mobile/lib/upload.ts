@@ -25,3 +25,25 @@ export async function uploadToConvex(
     return null;
   }
 }
+
+/**
+ * Upload a local video file to a provider direct-upload URL using multipart.
+ * Cloudflare Stream direct uploads expect the file under the `file` field.
+ */
+export async function uploadToDirectVideoUrl(
+  uploadUrl: string,
+  fileUri: string,
+  contentType = 'video/mp4'
+): Promise<boolean> {
+  try {
+    const res = await uploadAsync(uploadUrl, fileUri, {
+      httpMethod: 'POST',
+      uploadType: FileSystemUploadType.MULTIPART,
+      fieldName: 'file',
+      mimeType: contentType,
+    });
+    return res.status >= 200 && res.status < 300;
+  } catch {
+    return false;
+  }
+}

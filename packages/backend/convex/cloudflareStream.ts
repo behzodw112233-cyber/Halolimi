@@ -1,5 +1,6 @@
 import { v } from 'convex/values';
 import { action } from './_generated/server';
+import { internal } from './_generated/api';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -29,8 +30,17 @@ function playbackBase() {
 }
 
 export const createDirectUpload = action({
-  args: { maxDurationSeconds: v.optional(v.number()) },
-  handler: async (_ctx, { maxDurationSeconds }) => {
+  args: { maxDurationSeconds: v.optional(v.number()), userId: v.optional(v.string()) },
+  handler: async (ctx, { maxDurationSeconds, userId }) => {
+    await ctx.runMutation((internal as any).rateLimit.consumeActionLimit, {
+      name: 'cloudflareUploadGlobal',
+      key: 'global',
+    });
+    await ctx.runMutation((internal as any).rateLimit.consumeActionLimit, {
+      name: 'cloudflareUploadUser',
+      key: userId ?? 'admin',
+    });
+
     const { accountId, token } = streamConfig();
     const reservedSeconds = Math.max(5, Math.min(maxDurationSeconds ?? 60, 600));
     const res = await fetch(

@@ -9,7 +9,7 @@ import {
   RTCSessionDescription,
   RTCView,
 } from '@stream-io/react-native-webrtc';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, View } from 'react-native';
@@ -18,9 +18,9 @@ import { AppText } from '../../components/app-text';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { setForceSpeakerphoneOn, startInCall, stopInCall } from '../../lib/incall-safe';
-import { RTC_CONFIG } from '../../lib/webrtc';
+import { CALL_VIDEO_CONSTRAINTS, getRtcConfig } from '../../lib/webrtc';
 
-type CallStatus = 'connecting' | 'ringing' | 'connected' | 'ended';
+type CallStatus = 'connecting' | 'ringing' | 'connected' | 'reconnecting' | 'ended';
 
 /** mm:ss call timer. */
 function fmtElapsed(totalSeconds: number) {
@@ -55,6 +55,9 @@ export default function CallScreen() {
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const callIdRef = useRef<Id<'calls'> | null>(callId);
+  const pendingLocalCandidatesRef = useRef<string[]>([]);
+  const pendingRemoteCandidatesRef = useRef<string[]>([]);
   const appliedCandidatesRef = useRef(0);
   const remoteDescSetRef = useRef(false);
   const startedRef = useRef(false);
@@ -65,6 +68,46 @@ export default function CallScreen() {
   const declineCall = useMutation(api.calls.decline);
   const endCall = useMutation(api.calls.end);
   const addCandidate = useMutation(api.calls.addCandidate);
+  const generateIceServers = useAction(api.cloudflareTurn.generateIceServers);
+
+  const setActiveCallId = useCallback((nextCallId: Id<'calls'>) => {
+    callIdRef.current = nextCallId;
+    setCallId(nextCallId);
+  }, []);
+
+  const sendLocalCandidate = useCallback(
+    async (candidate: string, targetCallId = callIdRef.current) => {
+      if (!userId) return;
+      if (!targetCallId) {
+        pendingLocalCandidatesRef.current.push(candidate);
+        return;
+      }
+      await addCandidate({ callId: targetCallId, senderId: userId, candidate }).catch(() => {});
+    },
+    [addCandidate, userId]
+  );
+
+  const flushLocalCandidates = useCallback(
+    async (targetCallId: Id<'calls'>) => {
+      const pending = pendingLocalCandidatesRef.current.splice(0);
+      await Promise.all(pending.map((candidate) => sendLocalCandidate(candidate, targetCallId)));
+    },
+    [sendLocalCandidate]
+  );
+
+  const applyRemoteCandidate = useCallback((candidate: string) => {
+    const pc = pcRef.current;
+    if (!pc || !remoteDescSetRef.current) {
+      pendingRemoteCandidatesRef.current.push(candidate);
+      return;
+    }
+    pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candidate))).catch(() => {});
+  }, []);
+
+  const flushRemoteCandidates = useCallback(() => {
+    const pending = pendingRemoteCandidatesRef.current.splice(0);
+    pending.forEach(applyRemoteCandidate);
+  }, [applyRemoteCandidate]);
 
   const call = useQuery(api.calls.get, callId ? { callId } : 'skip');
   const otherUserId = isCaller ? call?.calleeId : call?.callerId;
@@ -86,13 +129,14 @@ export default function CallScreen() {
     async (reason?: 'decline') => {
       setStatus('ended');
       cleanup();
-      if (callId) {
-        if (reason === 'decline') await declineCall({ callId }).catch(() => {});
-        else await endCall({ callId }).catch(() => {});
+      const activeCallId = callIdRef.current;
+      if (activeCallId) {
+        if (reason === 'decline') await declineCall({ callId: activeCallId }).catch(() => {});
+        else await endCall({ callId: activeCallId }).catch(() => {});
       }
       router.canGoBack() ? router.back() : router.replace('/(tabs)/chat');
     },
-    [callId, cleanup, declineCall, endCall, router]
+    [cleanup, declineCall, endCall, router]
   );
 
   // Build the peer connection + local media once, then either create an offer
@@ -105,12 +149,13 @@ export default function CallScreen() {
       startInCall({ media: 'video' });
       const stream = (await mediaDevices.getUserMedia({
         audio: true,
-        video: { facingMode: 'user' },
+        video: CALL_VIDEO_CONSTRAINTS,
       })) as MediaStream;
       localStreamRef.current = stream;
       setLocalStreamUrl(stream.toURL());
 
-      const pc = new RTCPeerConnection(RTC_CONFIG);
+      const turn = await generateIceServers({ ttlSeconds: 86_400 }).catch(() => null);
+      const pc = new RTCPeerConnection(getRtcConfig(turn?.iceServers));
       pcRef.current = pc;
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
@@ -118,8 +163,8 @@ export default function CallScreen() {
         if (event.streams[0]) setRemoteStreamUrl(event.streams[0].toURL());
       };
       pc.onicecandidate = (event: { candidate: unknown }) => {
-        if (event.candidate && callId) {
-          addCandidate({ callId, senderId: userId, candidate: JSON.stringify(event.candidate) }).catch(() => {});
+        if (event.candidate) {
+          sendLocalCandidate(JSON.stringify(event.candidate));
         }
       };
       pc.oniceconnectionstatechange = () => {
@@ -127,7 +172,9 @@ export default function CallScreen() {
         if (s === 'connected' || s === 'completed') {
           connectStartRef.current = Date.now();
           setStatus('connected');
-        } else if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+        } else if (s === 'disconnected') {
+          setStatus('reconnecting');
+        } else if (s === 'failed' || s === 'closed') {
           hangUp();
         }
       };
@@ -144,7 +191,8 @@ export default function CallScreen() {
           calleeName: String(params.calleeName ?? ''),
           offer: offer.sdp as string,
         });
-        setCallId(newCallId);
+        setActiveCallId(newCallId);
+        await flushLocalCandidates(newCallId);
         // Give up if nobody answers.
         setTimeout(() => {
           if (!remoteDescSetRef.current) hangUp();
@@ -168,26 +216,29 @@ export default function CallScreen() {
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: call.offer }));
       const ans = await pc.createAnswer();
       await pc.setLocalDescription(ans);
+      flushRemoteCandidates();
       if (callId) await answerCall({ callId, answer: ans.sdp as string });
     })();
-  }, [isCaller, call, callId, answerCall]);
+  }, [isCaller, call, callId, answerCall, flushRemoteCandidates]);
 
   // Caller: once the callee answers, attach the remote description.
   useEffect(() => {
     if (!isCaller || !call?.answer || !pcRef.current || remoteDescSetRef.current) return;
     remoteDescSetRef.current = true;
-    pcRef.current.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: call.answer }));
-  }, [isCaller, call?.answer]);
+    pcRef.current
+      .setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: call.answer }))
+      .then(flushRemoteCandidates)
+      .catch(() => {});
+  }, [isCaller, call?.answer, flushRemoteCandidates]);
 
   // Apply newly-trickled ICE candidates from the other side.
   useEffect(() => {
     if (!remoteCandidates || !pcRef.current) return;
-    const pc = pcRef.current;
     for (let i = appliedCandidatesRef.current; i < remoteCandidates.length; i++) {
-      pc.addIceCandidate(new RTCIceCandidate(JSON.parse(remoteCandidates[i]))).catch(() => {});
+      applyRemoteCandidate(remoteCandidates[i]);
     }
     appliedCandidatesRef.current = remoteCandidates.length;
-  }, [remoteCandidates]);
+  }, [remoteCandidates, applyRemoteCandidate]);
 
   // React to the other side declining/ending the call.
   useEffect(() => {
@@ -225,7 +276,13 @@ export default function CallScreen() {
   }, []);
 
   const statusLabel =
-    status === 'connecting' ? 'Ulanmoqda…' : status === 'ringing' ? 'Qoʻngʻiroq qilinmoqda…' : fmtElapsed(elapsed);
+    status === 'connecting'
+      ? 'Ulanmoqda...'
+      : status === 'ringing'
+        ? 'Qoʻngʻiroq qilinmoqda...'
+        : status === 'reconnecting'
+          ? 'Qayta ulanmoqda...'
+          : fmtElapsed(elapsed);
 
   return (
     <View className="flex-1" style={{ backgroundColor: '#0B0B0F' }}>

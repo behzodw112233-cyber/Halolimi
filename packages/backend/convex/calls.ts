@@ -93,12 +93,9 @@ export const candidatesFrom = query({
   handler: async (ctx, { callId, otherUserId }) => {
     const rows = await ctx.db
       .query('callCandidates')
-      .withIndex('by_call', (q) => q.eq('callId', callId))
+      .withIndex('by_call_sender', (q) => q.eq('callId', callId).eq('senderId', otherUserId))
       .collect();
-    return rows
-      .filter((r) => r.senderId === otherUserId)
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .map((r) => r.candidate);
+    return rows.sort((a, b) => a.createdAt - b.createdAt).map((r) => r.candidate);
   },
 });
 
@@ -108,11 +105,12 @@ export const incoming = query({
   handler: async (ctx, { userId }) => {
     const rows = await ctx.db
       .query('calls')
-      .withIndex('by_callee', (q) => q.eq('calleeId', userId))
-      .collect();
+      .withIndex('by_callee_status_created', (q) => q.eq('calleeId', userId).eq('status', 'ringing'))
+      .order('desc')
+      .take(5);
     const now = Date.now();
     const ringing = rows
-      .filter((r) => r.status === 'ringing' && now - r.createdAt < RING_TIMEOUT_MS)
+      .filter((r) => now - r.createdAt < RING_TIMEOUT_MS)
       .sort((a, b) => b.createdAt - a.createdAt);
     return ringing[0] ?? null;
   },

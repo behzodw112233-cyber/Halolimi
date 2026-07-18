@@ -2,6 +2,7 @@ import { v } from 'convex/values';
 import { mutation, query, type MutationCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import { createForUser } from './notifications';
+import { enforceRateLimit } from './rateLimit';
 
 // A login handshake is only valid for a few minutes.
 const SESSION_TTL_MS = 5 * 60 * 1000;
@@ -93,6 +94,7 @@ async function markUserTelegramVerified(
 export const start = mutation({
   args: { token: v.string(), userId: v.optional(v.id('users')) },
   handler: async (ctx, { token, userId }) => {
+    await enforceRateLimit(ctx, 'authStartToken', userId ?? token);
     const existing = await ctx.db
       .query('authSessions')
       .withIndex('by_token', (q) => q.eq('token', token))
@@ -145,6 +147,7 @@ export const verify = mutation({
     if (!telegramId) {
       throw new Error('Telegram ID majburiy');
     }
+    await enforceRateLimit(ctx, 'authVerifyTelegram', telegramId);
     const existing = await ctx.db
       .query('authSessions')
       .withIndex('by_token', (q) => q.eq('token', token))

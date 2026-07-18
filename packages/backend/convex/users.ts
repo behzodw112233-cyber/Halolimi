@@ -24,8 +24,11 @@ export const list = query({
 });
 
 export const get = query({
-  args: { id: v.id('users') },
-  handler: (ctx, { id }) => ctx.db.get(id),
+  args: { id: v.string() },
+  handler: (ctx, { id }) => {
+    const userId = ctx.db.normalizeId('users', id);
+    return userId ? ctx.db.get(userId) : null;
+  },
 });
 
 /** Lightweight phone "login": find-or-create a user, returns the id. */
@@ -251,7 +254,9 @@ export const sellerProfile = query({
         .sort((a, b) => a.order - b.order)[0] ??
       dealerRows.sort((a, b) => b.createdAt - a.createdAt)[0] ??
       null;
-    const dealerVideoUrl = dealerShowcase ? await ctx.storage.getUrl(dealerShowcase.videoId) : null;
+    const dealerStorageVideoUrl = dealerShowcase?.videoId
+      ? await ctx.storage.getUrl(dealerShowcase.videoId)
+      : null;
     const dealerThumbUrl = dealerShowcase?.thumbId
       ? await ctx.storage.getUrl(dealerShowcase.thumbId)
       : null;
@@ -287,8 +292,8 @@ export const sellerProfile = query({
             _id: dealerShowcase._id,
             title: dealerShowcase.title,
             dealer: dealerShowcase.dealer ?? u.name,
-            videoUrl: dealerVideoUrl,
-            thumbUrl: dealerThumbUrl,
+            videoUrl: dealerShowcase.hlsUrl ?? dealerStorageVideoUrl,
+            thumbUrl: dealerShowcase.thumbnailUrl ?? dealerThumbUrl,
           }
         : null,
     };

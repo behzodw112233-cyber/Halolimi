@@ -3,7 +3,7 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Card, Chip } from '@heroui/react';
 import { useMutation, useQuery } from 'convex/react';
-import { Check, Download, X } from 'lucide-react';
+import { Banknote, Check, CreditCard, Download, Megaphone, Wallet, X } from 'lucide-react';
 import { EvilComposedChart } from '@/components/charts/composed-chart';
 import { EvilSankeyChart, type SankeyData } from '@/components/charts/sankey-chart';
 import { StatCard } from '@/components/stat-card';
@@ -101,6 +101,32 @@ export default function Dashboard() {
         {stats.map((s) => (
           <StatCard key={s.label} stat={s} />
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        {[
+          { label: 'Promo revenue', value: overview?.money.revenue ?? 0, icon: Megaphone, tint: '#0A6CFF' },
+          { label: 'Stripe cash-in', value: overview?.money.stripeCashIn ?? 0, icon: CreditCard, tint: '#635BFF' },
+          { label: 'Wallet top-up', value: overview?.money.walletTopups ?? 0, icon: Wallet, tint: '#8B5CF6' },
+          { label: 'Pending money', value: overview?.money.pendingAmount ?? 0, icon: Banknote, tint: '#F59E0B' },
+        ].map((m) => {
+          const Icon = m.icon;
+          return (
+            <Card key={m.label} className="rounded-2xl border border-neutral-200 bg-white shadow-none">
+              <Card.Content className="flex items-center gap-3 p-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: `${m.tint}16` }}>
+                  <Icon size={20} style={{ color: m.tint }} />
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase text-neutral-400">{m.label}</p>
+                  <p className="text-lg font-bold text-neutral-900">
+                    {m.value.toLocaleString('ru-RU')} so'm
+                  </p>
+                </div>
+              </Card.Content>
+            </Card>
+          );
+        })}
       </div>
 
       {/* Charts row */}

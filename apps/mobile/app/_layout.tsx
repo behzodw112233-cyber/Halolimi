@@ -29,7 +29,9 @@ import { ConvexClientProvider } from '../components/convex-provider';
 import { IncomingCallOverlay } from '../components/incoming-call';
 import { AuthProvider } from '../lib/auth';
 import { LocationProvider } from '../lib/location';
+import { AnalyticsTracker } from '../lib/posthog';
 import { PushManager } from '../lib/push';
+import { useAuth } from '../lib/auth';
 import '../global.css';
 
 // Keep the branded splash on screen until fonts are ready — otherwise the user
@@ -37,6 +39,11 @@ import '../global.css';
 SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 300, fade: true });
 Uniwind.setTheme('light');
+
+function AnalyticsBridge() {
+  const { userId } = useAuth();
+  return <AnalyticsTracker userId={userId} />;
+}
 
 export default function RootLayout() {
   // Keys must match the font-family names referenced in global.css.
@@ -82,6 +89,7 @@ export default function RootLayout() {
         <LocationProvider>
         <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
           <PushManager />
+          <AnalyticsBridge />
           <IncomingCallOverlay />
           <StatusBar style="dark" />
           <Stack screenOptions={{ headerShown: false }}>

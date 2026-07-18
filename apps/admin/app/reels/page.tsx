@@ -3,7 +3,7 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Button, Card, Chip } from '@heroui/react';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { Pin, PinOff, Play, Trash2, Upload, Video } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { PageHeader } from '@/components/page-header';
@@ -13,6 +13,7 @@ export default function ReelsPage() {
   const users = useQuery(api.users.list) ?? [];
   const listings = useQuery(api.listings.list, {}) ?? [];
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+  const createCloudflareUpload = useAction(api.cloudflareStream.createDirectUpload);
   const createReel = useMutation(api.reels.create);
   const setActive = useMutation(api.reels.setActive);
   const setStatus = useMutation(api.reels.setStatus);
@@ -45,6 +46,15 @@ export default function ReelsPage() {
     return storageId as Id<'_storage'>;
   };
 
+  const uploadVideoToCloudflare = async (file: File) => {
+    const direct = await createCloudflareUpload({ maxDurationSeconds: 600, userId: 'admin' });
+    const body = new FormData();
+    body.append('file', file, file.name || 'halolmia-reel.mp4');
+    const res = await fetch(direct.uploadUrl, { method: 'POST', body });
+    if (!res.ok) throw new Error(`Cloudflare upload failed (${res.status})`);
+    return direct;
+  };
+
   const fillFromListing = (id: string) => {
     setListingId(id);
     const listing = listings.find((l) => l._id === id);
@@ -60,8 +70,11 @@ export default function ReelsPage() {
     if (!title.trim() || busy || (!video && !hlsUrl.trim())) return;
     setBusy(true);
     try {
-      const videoId = video ? await upload(video) : undefined;
       const thumbId = thumb ? await upload(thumb) : undefined;
+      const direct = video ? await uploadVideoToCloudflare(video) : null;
+      const nextHlsUrl = direct?.hlsUrl ?? (hlsUrl.trim() || undefined);
+      const nextThumbnailUrl =
+        thumbnailUrl.trim() || direct?.thumbnailUrl || undefined;
       await createReel({
         title: title.trim(),
         caption: caption.trim() || undefined,
@@ -70,11 +83,11 @@ export default function ReelsPage() {
         category: category.trim() || undefined,
         city: city.trim() || undefined,
         price: price.trim() || undefined,
-        videoId,
         thumbId,
-        hlsUrl: hlsUrl.trim() || undefined,
-        thumbnailUrl: thumbnailUrl.trim() || undefined,
-        videoProvider: hlsUrl.trim() ? 'cloudflare' : 'convex',
+        hlsUrl: nextHlsUrl,
+        thumbnailUrl: nextThumbnailUrl,
+        videoProvider: nextHlsUrl ? 'cloudflare' : 'convex',
+        providerVideoId: direct?.uid,
       });
       setSellerId('');
       setListingId('');
@@ -193,11 +206,11 @@ export default function ReelsPage() {
                 className="w-full text-sm text-neutral-600 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-3 file:py-2 file:text-sm"
               />
             </Field>
-            <Field label="HLS URL (Cloudflare/Mux keyin)">
+            <Field label="HLS URL (Cloudflare/Mux)">
               <input
                 value={hlsUrl}
                 onChange={(e) => setHlsUrl(e.target.value)}
-                placeholder="https://.../manifest.m3u8"
+                placeholder="https://.../manifest/video.m3u8"
                 className="h-10 w-full rounded-lg border border-neutral-200 px-3 text-sm outline-none focus:border-neutral-400"
               />
             </Field>
@@ -233,7 +246,9 @@ export default function ReelsPage() {
         )}
         {reels.map((r) => (
           <Card key={r._id} className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-none">
-            {r.videoUrl ? (
+            {r.videoProvider === 'cloudflare' && r.providerVideoId ? (
+              <CloudflareFrame uid={r.providerVideoId} aspectClass="aspect-[9/14]" />
+            ) : r.videoUrl ? (
               <video
                 src={r.videoUrl}
                 poster={r.thumbUrl ?? undefined}
@@ -319,6 +334,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <label className="mb-1 block text-sm text-neutral-500">{label}</label>
       {children}
     </div>
+  );
+}
+
+function CloudflareFrame({ uid, aspectClass }: { uid: string; aspectClass: string }) {
+  return (
+    <iframe
+      src={`https://iframe.videodelivery.net/${uid}?controls=true`}
+      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+      allowFullScreen
+      className={`${aspectClass} w-full border-0 bg-black`}
+    />
   );
 }
 

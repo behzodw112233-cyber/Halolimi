@@ -12,7 +12,7 @@ import { AppText } from '../components/app-text';
 import { BRAND_BLUE } from '../constants/theme';
 import { useAuth } from '../lib/auth';
 import { hasExpoVideo, useVideoPlayer, VideoView } from '../lib/optional-native';
-import { uploadToConvex } from '../lib/upload';
+import { uploadToConvex, uploadToDirectVideoUrl } from '../lib/upload';
 
 type PickedVideo = {
   uri: string;
@@ -135,20 +135,13 @@ export default function VideoCreate() {
     try {
       let reelId: Id<'reels'>;
       try {
-        const direct = await createCloudflareUpload({ maxDurationSeconds: 60 });
-        const form = new FormData();
-        form.append('file', {
-          uri: video.uri,
-          name: videoFileName(video.uri),
-          type: video.mimeType ?? 'video/mp4',
-        } as unknown as Blob);
-        const cloudflareUpload = await fetch(direct.uploadUrl, {
-          method: 'POST',
-          body: form,
-        });
-        if (!cloudflareUpload.ok) {
-          throw new Error(`Cloudflare upload failed with ${cloudflareUpload.status}`);
-        }
+        const direct = await createCloudflareUpload({ maxDurationSeconds: 60, userId });
+        const uploaded = await uploadToDirectVideoUrl(
+          direct.uploadUrl,
+          video.uri,
+          video.mimeType ?? 'video/mp4'
+        );
+        if (!uploaded) throw new Error('Cloudflare upload failed');
         reelId = await createReel({
           ...baseReel,
           hlsUrl: direct.hlsUrl,

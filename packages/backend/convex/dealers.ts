@@ -4,16 +4,16 @@ import type { Doc } from './_generated/dataModel';
 
 /** Resolve the video + thumbnail URLs and the linked seller (name/avatar). */
 async function withUrls(ctx: QueryCtx, d: Doc<'dealers'>) {
-  const videoUrl = await ctx.storage.getUrl(d.videoId);
-  const thumbUrl = d.thumbId ? await ctx.storage.getUrl(d.thumbId) : null;
+  const storageVideoUrl = d.videoId ? await ctx.storage.getUrl(d.videoId) : null;
+  const storageThumbUrl = d.thumbId ? await ctx.storage.getUrl(d.thumbId) : null;
   // A dealer attached to a real user shows that user's name/avatar and links
   // through to their seller profile. Fall back to the free-text `dealer` label.
   const user = d.userId ? await ctx.db.get(d.userId) : null;
   const avatarUrl = user?.avatar ? await ctx.storage.getUrl(user.avatar) : null;
   return {
     ...d,
-    videoUrl,
-    thumbUrl,
+    videoUrl: d.hlsUrl ?? storageVideoUrl,
+    thumbUrl: d.thumbnailUrl ?? storageThumbUrl,
     sellerId: d.userId ?? null,
     sellerName: user?.name ?? d.dealer ?? null,
     avatarUrl,
@@ -53,24 +53,35 @@ export const create = mutation({
     title: v.string(),
     dealer: v.optional(v.string()),
     userId: v.optional(v.id('users')),
-    videoId: v.id('_storage'),
+    videoId: v.optional(v.id('_storage')),
     thumbId: v.optional(v.id('_storage')),
+    hlsUrl: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
+    videoProvider: v.optional(
+      v.union(v.literal('convex'), v.literal('cloudflare'), v.literal('mux'), v.literal('bunny'))
+    ),
+    providerVideoId: v.optional(v.string()),
   },
-  handler: async (ctx, { title, dealer, userId, videoId, thumbId }) => {
+  handler: async (ctx, args) => {
+    if (!args.videoId && !args.hlsUrl) throw new Error('Video kerak');
     const all = await ctx.db.query('dealers').collect();
     const order = all.reduce((m, d) => Math.max(m, d.order), -1) + 1;
     // Default the display label to the user's name when attaching to a user.
-    let label = dealer?.trim() || undefined;
-    if (!label && userId) {
-      const u = await ctx.db.get(userId);
+    let label = args.dealer?.trim() || undefined;
+    if (!label && args.userId) {
+      const u = await ctx.db.get(args.userId);
       label = u?.name;
     }
     return await ctx.db.insert('dealers', {
-      title: title.trim(),
+      title: args.title.trim(),
       dealer: label,
-      userId,
-      videoId,
-      thumbId,
+      userId: args.userId,
+      videoId: args.videoId,
+      thumbId: args.thumbId,
+      hlsUrl: args.hlsUrl?.trim() || undefined,
+      thumbnailUrl: args.thumbnailUrl?.trim() || undefined,
+      videoProvider: args.videoProvider ?? (args.hlsUrl ? 'cloudflare' : 'convex'),
+      providerVideoId: args.providerVideoId?.trim() || undefined,
       order,
       active: true,
       createdAt: Date.now(),
@@ -90,7 +101,7 @@ export const remove = mutation({
   handler: async (ctx, { id }) => {
     const d = await ctx.db.get(id);
     if (!d) return;
-    await ctx.storage.delete(d.videoId).catch(() => {});
+    if (d.videoId) await ctx.storage.delete(d.videoId).catch(() => {});
     if (d.thumbId) await ctx.storage.delete(d.thumbId).catch(() => {});
     await ctx.db.delete(id);
   },

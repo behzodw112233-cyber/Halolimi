@@ -2,6 +2,7 @@
 
 import { v } from 'convex/values';
 import { action } from './_generated/server';
+import { internal } from './_generated/api';
 
 declare const process: { env: Record<string, string | undefined> };
 declare const Buffer: { from(input: string, encoding: 'base64'): Uint8Array };
@@ -137,8 +138,18 @@ function cleanCategories(parsed: unknown, fallback: ReturnType<typeof heuristic>
 }
 
 export const ask = action({
-  args: { text: v.string() },
-  handler: async (_ctx, { text }) => {
+  args: { text: v.string(), userId: v.optional(v.string()) },
+  handler: async (ctx, { text, userId }) => {
+    const key = userId ?? `anon:${text.trim().slice(0, 64)}`;
+    await ctx.runMutation((internal as any).rateLimit.consumeActionLimit, {
+      name: 'aiAdvisorUser',
+      key,
+    });
+    await ctx.runMutation((internal as any).rateLimit.consumeActionLimit, {
+      name: 'aiAdvisorDaily',
+      key,
+    });
+
     const fallback = heuristic(text);
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) return { ...fallback, provider: 'local-fallback' };
@@ -201,8 +212,14 @@ export const transcribe = action({
   args: {
     audioBase64: v.string(),
     mimeType: v.optional(v.string()),
+    userId: v.optional(v.string()),
   },
-  handler: async (_ctx, { audioBase64, mimeType }) => {
+  handler: async (ctx, { audioBase64, mimeType, userId }) => {
+    await ctx.runMutation((internal as any).rateLimit.consumeActionLimit, {
+      name: 'aiTranscribeUser',
+      key: userId ?? `anon:${audioBase64.length}`,
+    });
+
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error('GROQ_API_KEY is not configured');
 

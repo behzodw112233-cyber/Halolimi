@@ -3,7 +3,7 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Button, Card, Chip } from '@heroui/react';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { MapPin, Trash2, Upload, Video } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { PageHeader } from '@/components/page-header';
@@ -14,6 +14,7 @@ export default function DilerlarPage() {
   // showcase video attached.
   const dealerUsers = (useQuery(api.users.list) ?? []).filter((u) => u.isDealer);
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
+  const createCloudflareUpload = useAction(api.cloudflareStream.createDirectUpload);
   const createDealer = useMutation(api.dealers.create);
   const updateDealerProfile = useMutation(api.users.updateDealerProfile);
   const removeDealer = useMutation(api.dealers.remove);
@@ -52,11 +53,20 @@ export default function DilerlarPage() {
     return storageId as Id<'_storage'>;
   };
 
+  const uploadVideoToCloudflare = async (file: File) => {
+    const direct = await createCloudflareUpload({ maxDurationSeconds: 600, userId: 'admin' });
+    const body = new FormData();
+    body.append('file', file, file.name || 'halolmia-dealer.mp4');
+    const res = await fetch(direct.uploadUrl, { method: 'POST', body });
+    if (!res.ok) throw new Error(`Cloudflare upload failed (${res.status})`);
+    return direct;
+  };
+
   const submit = async () => {
     if (!userId || !title.trim() || !video || busy) return;
     setBusy(true);
     try {
-      const videoId = await upload(video);
+      const direct = await uploadVideoToCloudflare(video);
       const thumbId = thumb ? await upload(thumb) : undefined;
       await updateDealerProfile({
         id: userId as Id<'users'>,
@@ -68,8 +78,11 @@ export default function DilerlarPage() {
         title: title.trim(),
         dealer: dealer.trim() || undefined,
         userId: userId as Id<'users'>,
-        videoId,
         thumbId,
+        hlsUrl: direct.hlsUrl,
+        thumbnailUrl: direct.thumbnailUrl,
+        videoProvider: 'cloudflare',
+        providerVideoId: direct.uid,
       });
       setUserId('');
       setTitle('');
@@ -163,7 +176,7 @@ export default function DilerlarPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm text-neutral-500">Video fayl *</label>
+              <label className="mb-1 block text-sm text-neutral-500">Video fayl * (Cloudflare Stream)</label>
               <input
                 ref={videoInput}
                 type="file"
@@ -206,7 +219,9 @@ export default function DilerlarPage() {
         )}
         {dealers.map((d) => (
           <Card key={d._id} className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-none">
-            {d.videoUrl ? (
+            {d.videoProvider === 'cloudflare' && d.providerVideoId ? (
+              <CloudflareFrame uid={d.providerVideoId} aspectClass="aspect-video" />
+            ) : d.videoUrl ? (
               <video
                 src={d.videoUrl}
                 poster={d.thumbUrl ?? undefined}
@@ -252,5 +267,16 @@ export default function DilerlarPage() {
         ))}
       </div>
     </div>
+  );
+}
+
+function CloudflareFrame({ uid, aspectClass }: { uid: string; aspectClass: string }) {
+  return (
+    <iframe
+      src={`https://iframe.videodelivery.net/${uid}?controls=true`}
+      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+      allowFullScreen
+      className={`${aspectClass} w-full border-0 bg-black`}
+    />
   );
 }

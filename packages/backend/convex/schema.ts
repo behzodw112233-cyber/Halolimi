@@ -30,6 +30,21 @@ export const invoiceStatus = v.union(
 );
 export const reportStatus = v.union(v.literal('new'), v.literal('resolved'));
 export const paymentStatus = v.union(v.literal('success'), v.literal('pending'));
+export const bountySubmissionStatus = v.union(
+  v.literal('draft'),
+  v.literal('checking'),
+  v.literal('approved'),
+  v.literal('rejected'),
+  v.literal('paid')
+);
+export const bountyPlatform = v.union(
+  v.literal('tiktok'),
+  v.literal('instagram'),
+  v.literal('youtube'),
+  v.literal('vimeo'),
+  v.literal('other')
+);
+
 export const reelStatus = v.union(
   v.literal('processing'),
   v.literal('ready'),
@@ -516,4 +531,44 @@ export default defineSchema({
   })
     .index('by_order', ['orderId'])
     .index('by_user', ['userId']),
+  bountyCreators: defineTable({
+    phone: v.string(),
+    legalName: v.string(),
+    region: v.optional(v.string()),
+    payoutStatus: v.union(v.literal('incomplete'), v.literal('ready'), v.literal('paused')),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index('by_phone', ['phone']),
+
+  bountySubmissions: defineTable({
+    creatorPhone: v.string(),
+    creatorName: v.string(),
+    campaignSlug: v.string(),
+    platform: bountyPlatform,
+    url: v.string(),
+    canonicalUrl: v.optional(v.string()),
+    title: v.optional(v.string()),
+    authorName: v.optional(v.string()),
+    providerName: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
+    metadataStatus: v.union(v.literal('queued'), v.literal('imported'), v.literal('failed')),
+    metadataError: v.optional(v.string()),
+    status: bountySubmissionStatus,
+    viewCount: v.number(),
+    qualifiedViewCount: v.number(),
+    installCount: v.number(),
+    activationCount: v.number(),
+    rewardCents: v.number(),
+    qualityMultiplier: v.number(),
+    originalityMultiplier: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    reviewedAt: v.optional(v.number()),
+    paidAt: v.optional(v.number()),
+  })
+    .index('by_creator', ['creatorPhone'])
+    .index('by_creator_url', ['creatorPhone', 'canonicalUrl'])
+    .index('by_campaign', ['campaignSlug'])
+    .index('by_status', ['status'])
+    .index('by_creator_created', ['creatorPhone', 'createdAt']),
 });

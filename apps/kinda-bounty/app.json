@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "Kinda Bounty",
+    "slug": "kinda-bounty",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "kindabounty",
+    "userInterfaceStyle": "light",
+    "platforms": ["ios", "android", "web"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "predictiveBackGestureEnabled": false,
+      "package": "com.behzodosteam.kindabounty"
+    },
+    "web": {
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0A6CFF"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

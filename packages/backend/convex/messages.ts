@@ -3,9 +3,11 @@ import { mutation, query, type MutationCtx } from './_generated/server';
 import { internal } from './_generated/api';
 import { createForUser } from './notifications';
 import type { Id } from './_generated/dataModel';
+import { enforceRateLimit } from './rateLimit';
 
 const TYPING_MS = 5_000; // typing indicator lifetime
 const ONLINE_MS = 60_000; // "online" if seen within a minute
+const MESSAGE_LIMIT = 120;
 
 /** Deterministic key so opening the same buyer↔seller↔listing chat reuses one thread. */
 function threadKey(a: Id<'users'>, b: Id<'users'> | undefined, listingId?: Id<'listings'>) {
@@ -114,6 +116,18 @@ export const myThreads = query({
   },
 });
 
+/** Lightweight unread badge query for the tab bar. */
+export const unreadTotal = query({
+  args: { userId: v.id('users') },
+  handler: async (ctx, { userId }) => {
+    const members = await ctx.db
+      .query('threadMembers')
+      .withIndex('by_user', (q) => q.eq('userId', userId))
+      .collect();
+    return members.reduce((sum, m) => sum + m.unread, 0);
+  },
+});
+
 /** Messages for a thread (oldest first) with resolved image URLs + reply previews. */
 export const list = query({
   args: { threadId: v.string() },
@@ -121,8 +135,9 @@ export const list = query({
     const rows = await ctx.db
       .query('messages')
       .withIndex('by_thread', (q) => q.eq('threadId', threadId))
-      .collect();
-    const sorted = rows.sort((a, b) => a.createdAt - b.createdAt);
+      .order('desc')
+      .take(MESSAGE_LIMIT);
+    const sorted = rows.reverse();
     return Promise.all(
       sorted.map(async (m) => {
         const imageUrl = m.imageId ? await ctx.storage.getUrl(m.imageId) : null;
@@ -192,6 +207,10 @@ export const send = mutation({
     replyToId: v.optional(v.id('messages')),
   },
   handler: async (ctx, args) => {
+    const senderKey = args.senderId ?? `anon:${args.senderName}:${args.threadId}`;
+    await enforceRateLimit(ctx, 'sendMessageUser', senderKey);
+    await enforceRateLimit(ctx, 'sendMessageThread', args.threadId);
+
     if (args.senderId) {
       const sender = await ctx.db.get(args.senderId);
       if (sender?.status === 'blocked') throw new Error('Hisobingiz bloklangan');
@@ -266,6 +285,7 @@ export const setTyping = mutation({
   handler: async (ctx, { threadId, userId }) => {
     const tid = ctx.db.normalizeId('threads', threadId);
     if (!tid) return;
+    await enforceRateLimit(ctx, 'typingThread', `${userId}:${threadId}`);
     const { mine } = await memberRows(ctx, tid, userId);
     if (mine) await ctx.db.patch(mine._id, { typingUntil: Date.now() + TYPING_MS });
   },

@@ -6,32 +6,23 @@ const http = httpRouter();
 
 declare const process: { env: Record<string, string | undefined> };
 
-type InpayWebhookBody = {
-  order_id?: string;
-  amount?: number | string;
-  status?: string;
-  signature?: string;
+type StripeEvent = {
+  id?: string;
+  type?: string;
+  data?: {
+    object?: {
+      id?: string;
+      payment_status?: string;
+      status?: string;
+    };
+  };
 };
 
-type PaytechWebhookBody = {
-  order_id?: string | number;
-  id?: string | number;
-  amount?: number | string;
-  status?: string;
-  payment_method?: string;
-  transaction_id?: number | string;
-  signature?: string;
-};
-
-const asText = (value: unknown) =>
-  value === undefined || value === null ? '' : String(value);
-
-async function sha256Hex(input: string) {
-  const bytes = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
+function html(title: string, body: string) {
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font-family:Inter,Arial,sans-serif;margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f5f7;color:#0f172a}.card{max-width:420px;margin:24px;padding:28px;border-radius:20px;background:white;box-shadow:0 18px 60px rgba(15,23,42,.12)}h1{margin:0 0 10px;font-size:24px}p{margin:0;color:#64748b;line-height:1.5}</style></head><body><main class="card"><h1>${title}</h1><p>${body}</p></main></body></html>`,
+    { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  );
 }
 
 function safeEqual(a: string, b: string) {
@@ -43,60 +34,57 @@ function safeEqual(a: string, b: string) {
   return diff === 0;
 }
 
-async function verifyInpaySignature(body: InpayWebhookBody) {
-  const salt = process.env.INPAY_WEBHOOK_SALT;
-  if (!salt) return true;
-  const signature = asText(body.signature);
-  if (!signature) return false;
-  const expected = await sha256Hex(
-    `${asText(body.order_id)}${asText(body.amount)}${asText(body.status)}${salt}`
-  );
-  return safeEqual(expected.toLowerCase(), signature.toLowerCase());
+function hex(bytes: ArrayBuffer) {
+  return [...new Uint8Array(bytes)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 }
 
-function normalizePaytechStatus(status?: string): 'success' | 'failed' | 'cancelled' | 'pending' | null {
-  const value = status?.toLowerCase();
-  if (value === 'success' || value === 'paid' || value === 'completed') return 'success';
-  if (value === 'failed' || value === 'error') return 'failed';
-  if (value === 'cancelled' || value === 'canceled') return 'cancelled';
-  if (value === 'pending' || value === 'created') return 'pending';
-  return null;
+async function hmacSha256Hex(secret: string, payload: string) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+  return hex(signature);
 }
 
-async function verifyPaytechSignature(body: PaytechWebhookBody) {
-  const secret = process.env.PAYTECH_CALLBACK_SECRET;
-  if (!secret) return false;
-  const orderId = asText(body.order_id ?? body.id);
-  const expected = await sha256Hex(
-    `${orderId}${asText(body.status)}${asText(body.amount)}${secret}`
+async function verifyStripeSignature(payload: string, header: string | null) {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) throw new Error('STRIPE_WEBHOOK_SECRET is not configured');
+  if (!header) return false;
+
+  const parts = new Map(
+    header.split(',').map((part) => {
+      const [key, ...rest] = part.split('=');
+      return [key, rest.join('=')];
+    })
   );
-  return safeEqual(expected.toLowerCase(), asText(body.signature).toLowerCase());
+  const timestamp = parts.get('t');
+  const signature = parts.get('v1');
+  if (!timestamp || !signature) return false;
+
+  const expected = await hmacSha256Hex(secret, `${timestamp}.${payload}`);
+  return safeEqual(expected, signature);
 }
 
 http.route({
-  path: '/inpay/callback',
+  path: '/stripe/webhook',
   method: 'POST',
   handler: httpAction(async (ctx, request) => {
-    let body: InpayWebhookBody | null = null;
+    const payload = await request.text();
     try {
-      body = (await request.json()) as InpayWebhookBody | null;
-    } catch {
-      return Response.json({ ok: false, error: 'invalid json' }, { status: 400 });
-    }
-
-    if (!body?.order_id) {
-      return Response.json({ ok: false, error: 'missing order_id' }, { status: 400 });
-    }
-
-    try {
-      const valid = await verifyInpaySignature(body);
+      const valid = await verifyStripeSignature(payload, request.headers.get('stripe-signature'));
       if (!valid) {
-        return Response.json({ ok: false, error: 'bad signature' }, { status: 403 });
+        return Response.json({ ok: false, error: 'bad signature' }, { status: 400 });
       }
 
-      await ctx.runAction(internal.inpay.verifyAndSettle, {
-        orderId: body.order_id,
-      });
+      const event = JSON.parse(payload) as StripeEvent;
+      await ctx.runMutation(internal.stripe.handleWebhookEvent, { event });
+
       return Response.json({ ok: true }, { status: 200 });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'webhook failed';
@@ -106,47 +94,19 @@ http.route({
 });
 
 http.route({
-  path: '/paytech/callback',
-  method: 'POST',
-  handler: httpAction(async (ctx, request) => {
-    let body: PaytechWebhookBody | null = null;
-    try {
-      body = (await request.json()) as PaytechWebhookBody | null;
-    } catch {
-      return Response.json({ ok: false, error: 'invalid json' }, { status: 400 });
-    }
+  path: '/stripe/success',
+  method: 'GET',
+  handler: httpAction(async () =>
+    html('Tolov qabul qilindi', 'Stripe checkout yakunlandi. Ilovaga qayting, balans yoki reklama holati avtomatik yangilanadi.')
+  ),
+});
 
-    const orderId = asText(body?.order_id ?? body?.id);
-    if (!body || !orderId) {
-      return Response.json({ ok: false, error: 'missing order_id' }, { status: 400 });
-    }
-
-    const status = normalizePaytechStatus(body.status);
-    if (!status) {
-      return Response.json({ ok: false, error: 'unknown status' }, { status: 400 });
-    }
-
-    try {
-      const valid = await verifyPaytechSignature(body);
-      if (!valid) {
-        return Response.json({ ok: false, error: 'bad signature' }, { status: 403 });
-      }
-
-      await ctx.runMutation(internal.inpay.settlePaytech, {
-        orderId,
-        status,
-        method: body.payment_method,
-        transactionId:
-          body.transaction_id === undefined || body.transaction_id === null
-            ? undefined
-            : Number(body.transaction_id),
-      });
-      return Response.json({ ok: true }, { status: 200 });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'webhook failed';
-      return Response.json({ ok: false, error: message }, { status: 500 });
-    }
-  }),
+http.route({
+  path: '/stripe/cancel',
+  method: 'GET',
+  handler: httpAction(async () =>
+    html('Tolov bekor qilindi', 'Checkout yopildi. Ilovaga qaytib qayta urinishingiz mumkin.')
+  ),
 });
 
 export default http;

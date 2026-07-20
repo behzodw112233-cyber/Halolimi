@@ -1,21 +1,23 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Ionicons } from '@expo/vector-icons';
-import { useAction, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { EmbeddedStripeCheckout } from '../components/embedded-stripe-checkout';
 import { AppText } from '../components/app-text';
 import { BRAND_BLUE } from '../constants/theme';
 import { useAuth } from '../lib/auth';
 import { browserCheckoutUrl } from '../lib/checkout-url';
 
-// Map the UI payment button to PayTech/inPAY payment_method values.
-const METHOD_MAP: Record<string, string> = { click: 'click', payme: 'payme', uzcard: 'atmos' };
+// Stripe Checkout is the active test gateway. Method is kept for API
+// compatibility with the previous payment sheet.
+const METHOD_MAP: Record<string, string> = { stripe: 'stripe' };
 type PromoTier = 'alo' | 'zor' | 'vip' | 'lux';
 
 type Tier = {
@@ -23,6 +25,7 @@ type Tier = {
   badge: string;
   badgeColor: string;
   price: string;
+  priceUzs?: number;
   features?: string[];
   featured?: boolean;
 };
@@ -34,11 +37,13 @@ const TIERS: Tier[] = [
   { id: 'alo', badge: "AʼLO", badgeColor: '#9CA3AF', price: '6 000' },
 ];
 
-const PAYMENTS = [
-  { id: 'uzcard', label: 'Uzcard/Humo', color: '#1E3A8A' },
-  { id: 'payme', label: 'Payme', color: '#33CCCC' },
-  { id: 'click', label: 'Click', color: BRAND_BLUE },
-];
+const PAYMENTS = [{ id: 'stripe', label: 'Stripe test card', color: '#635BFF' }];
+const CLIENT_TIER_PRICE: Record<PromoTier, number> = {
+  alo: 6000,
+  zor: 29000,
+  vip: 51000,
+  lux: 102000,
+};
 
 const tap = () => {
   if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
@@ -48,50 +53,102 @@ export default function Promote() {
   const router = useRouter();
   const { listingId } = useLocalSearchParams<{ listingId?: string }>();
   const { userId } = useAuth();
+  const user = useQuery(api.users.get, userId ? { id: userId } : 'skip');
   const [selected, setSelected] = useState<PromoTier>('vip');
   const [payOpen, setPayOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [orderId, setOrderId] = useState<string | null>(null);
+  const payInFlightRef = useRef(false);
 
-  const createPromoteInvoice = useAction(api.inpay.createPromoteInvoice);
+  const createPromoteInvoice = useAction(api.stripe.createPromoteInvoice);
+  const refreshInvoice = useAction(api.stripe.refreshInvoice);
+  const promoteWithBalance = useMutation(api.stripe.promoteWithBalance);
 
-  // Admin controls which payment methods are enabled.
-  const settings = useQuery(api.settings.get);
-  const enabledPayments = PAYMENTS.filter((p) => {
-    if (!settings) return true;
-    if (p.id === 'payme') return settings.payme;
-    if (p.id === 'click') return settings.click;
-    if (p.id === 'uzcard') return settings.uzcard;
-    return true;
-  });
+  const enabledPayments = PAYMENTS;
 
   const tier = TIERS.find((t) => t.id === selected)!;
+  const tierPrice = CLIENT_TIER_PRICE[selected];
+  const balance = user?.balance ?? 0;
+  const canUseBalance = balance >= tierPrice;
+  const missingBalance = Math.max(0, tierPrice - balance);
 
-  // Pay for the selected plan via inPAY. The boost is applied server-side once
-  // the payment webhook is verified (inpay.markPaid), so we just open checkout.
-  const pay = async (methodId: string) => {
-    if (busy) return;
+  // Pay for the selected plan via Stripe. The boost is applied server-side once
+  // the payment webhook is verified server-side, so we just open checkout.
+  const payFromBalance = async () => {
+    if (busy || payInFlightRef.current || clientSecret) return;
     if (!userId || !listingId) {
       setPayOpen(false);
       router.replace('/review');
       return;
     }
+    if (!canUseBalance) return;
+    payInFlightRef.current = true;
     setBusy(true);
     try {
-      const { payUrl } = await createPromoteInvoice({
+      await promoteWithBalance({
         userId,
         listingId: listingId as Id<'listings'>,
         tier: selected,
-        method: METHOD_MAP[methodId] ?? 'inPAY',
       });
       setPayOpen(false);
-      await WebBrowser.openBrowserAsync(browserCheckoutUrl(payUrl));
+      Alert.alert('Reklama yoqildi', 'Tarif hisobingizdan tolandi va elon reklamada.');
       router.replace('/review');
     } catch (e) {
-      Alert.alert('Xatolik', e instanceof Error ? e.message : 'Toʻlovni yaratib boʻlmadi.');
+      Alert.alert('Xatolik', e instanceof Error ? e.message : 'Hisobdan tolab bolmadi.');
     } finally {
+      payInFlightRef.current = false;
       setBusy(false);
     }
   };
+
+  const pay = async (methodId: string) => {
+    if (busy || payInFlightRef.current || clientSecret) return;
+    if (!userId || !listingId) {
+      setPayOpen(false);
+      router.replace('/review');
+      return;
+    }
+    payInFlightRef.current = true;
+    setBusy(true);
+    try {
+      const result = await createPromoteInvoice({
+        userId,
+        listingId: listingId as Id<'listings'>,
+        tier: selected,
+        method: METHOD_MAP[methodId] ?? 'stripe',
+        embedded: Platform.OS === 'web',
+      });
+      if (Platform.OS === 'web') {
+        if (!result.clientSecret) throw new Error('Stripe embedded checkout client secret topilmadi.');
+        setOrderId(result.orderId);
+        setClientSecret(result.clientSecret);
+      } else if (result.payUrl) {
+        setPayOpen(false);
+        await WebBrowser.openBrowserAsync(browserCheckoutUrl(result.payUrl));
+        router.replace('/review');
+      }
+    } catch (e) {
+      Alert.alert('Xatolik', e instanceof Error ? e.message : 'Toʻlovni yaratib boʻlmadi.');
+    } finally {
+      payInFlightRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const closePayment = useCallback(() => {
+    setClientSecret(null);
+    setOrderId(null);
+    setPayOpen(false);
+  }, []);
+
+  const completePayment = useCallback(async () => {
+    if (orderId) await refreshInvoice({ orderId });
+    setClientSecret(null);
+    setOrderId(null);
+    setPayOpen(false);
+    router.replace('/review');
+  }, [orderId, refreshInvoice, router]);
 
   return (
     <View className="flex-1 bg-background">
@@ -151,14 +208,17 @@ export default function Promote() {
             // Featured tier gets the "stand out" banner wrapper
             if (t.featured) {
               return (
-                <View key={t.id} className="mb-3 overflow-hidden rounded-2xl">
+                <View
+                  key={t.id}
+                  className="mb-3 overflow-hidden rounded-2xl border bg-white"
+                  style={{ borderColor: active ? BRAND_BLUE : '#E5E7EB', borderWidth: active ? 2 : 1 }}
+                >
                   <LinearGradient colors={['#1E40AF', BRAND_BLUE]} style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
                     <AppText className="font-semibold text-base text-white">Boshqalardan ajralib turing!</AppText>
                   </LinearGradient>
                   <Pressable
                     onPress={() => { tap(); setSelected(t.id as PromoTier); }}
-                    className="flex-row items-center bg-white p-4"
-                    style={{ borderWidth: 2, borderColor: '#1E40AF', borderTopWidth: 0 }}
+                    className="flex-row items-center bg-white p-4 active:opacity-80"
                   >
                     <View className="mr-3 rounded-lg px-2.5 py-1" style={{ backgroundColor: t.badgeColor }}>
                       <AppText className="text-sm font-bold text-white">{t.badge}</AppText>
@@ -186,41 +246,105 @@ export default function Promote() {
       </SafeAreaView>
 
       {/* Payment sheet */}
-      <Modal visible={payOpen} transparent animationType="slide" onRequestClose={() => setPayOpen(false)}>
-        <Pressable className="flex-1 bg-black/40" onPress={() => setPayOpen(false)} />
-        <View className="rounded-t-3xl bg-background px-5 pb-8 pt-5">
-          <View className="mb-5 flex-row items-center justify-between">
-            <AppText className="font-bold text-xl text-foreground">Toʻlov usullari</AppText>
-            <Pressable onPress={() => setPayOpen(false)} hitSlop={10}>
-              <Ionicons name="close" size={26} color="#9ca3af" />
+      <Modal visible={payOpen} transparent animationType="slide" onRequestClose={closePayment}>
+        <View className="flex-1 justify-end bg-black/40">
+        <Pressable className="absolute inset-0" onPress={closePayment} />
+        <View className="max-h-[96vh] rounded-t-[28px] bg-background px-4 pb-3 pt-3 shadow-2xl md:px-5">
+          <View className="mb-3 h-1 w-10 self-center rounded-full bg-border" />
+          <View className="mb-3 flex-row items-center justify-between">
+            <View>
+              <AppText className="font-bold text-xl text-foreground">Toʻlov usuli</AppText>
+              <AppText className="mt-0.5 text-xs text-muted">Reklamani faollashtirish</AppText>
+            </View>
+            <Pressable
+              onPress={closePayment}
+              hitSlop={10}
+              className="h-9 w-9 items-center justify-center rounded-full bg-surface active:opacity-70"
+            >
+              <Ionicons name="close" size={21} color="#8B95A1" />
             </Pressable>
           </View>
+          {!clientSecret ? (
+            <View className="mb-3 flex-row items-center justify-between rounded-2xl border border-border bg-surface px-4 py-3">
+              <View className="flex-row items-center">
+                <View className="mr-3 h-10 w-10 items-center justify-center rounded-2xl" style={{ backgroundColor: BRAND_BLUE + '14' }}>
+                  <Ionicons name="megaphone-outline" size={19} color={BRAND_BLUE} />
+                </View>
+                <View>
+                  <AppText className="font-semibold text-sm text-foreground">{tier.badge} paket</AppText>
+                  <AppText className="mt-0.5 text-xs text-muted">Hisob: {balance.toLocaleString('ru-RU')} so'm</AppText>
+                </View>
+              </View>
+              <AppText className="font-bold text-base" style={{ color: BRAND_BLUE }}>{tier.price} so'm</AppText>
+            </View>
+          ) : null}
+          {clientSecret ? (
+            <EmbeddedStripeCheckout
+              clientSecret={clientSecret}
+              onComplete={completePayment}
+              onCancel={closePayment}
+            />
+          ) : (
           <View className="gap-3">
+            <Pressable
+              onPress={payFromBalance}
+              disabled={busy || !canUseBalance}
+              className="min-h-[76px] flex-row items-center rounded-2xl border bg-white px-4 py-3 active:opacity-70"
+              style={{
+                borderColor: canUseBalance ? BRAND_BLUE : '#E5E7EB',
+                opacity: busy || !canUseBalance ? 0.6 : 1,
+              }}
+            >
+              <View className="mr-3 h-11 w-11 items-center justify-center rounded-2xl" style={{ backgroundColor: canUseBalance ? BRAND_BLUE : '#E5E7EB' }}>
+                <Ionicons name="wallet-outline" size={22} color={canUseBalance ? '#fff' : '#8B95A1'} />
+              </View>
+              <View className="flex-1">
+                <AppText className="font-bold text-base text-foreground">Hisobdan to'lash</AppText>
+                <AppText className="mt-0.5 text-xs" style={{ color: canUseBalance ? BRAND_BLUE : '#8B95A1' }}>
+                  {canUseBalance
+                    ? 'Yetarli mablag bor - darhol reklama yoqiladi'
+                    : `${missingBalance.toLocaleString('ru-RU')} so'm yetmayapti`}
+                </AppText>
+              </View>
+              {canUseBalance ? (
+                <View className="ml-3 h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE + '10' }}>
+                  <Ionicons name="checkmark" size={19} color={BRAND_BLUE} />
+                </View>
+              ) : null}
+            </Pressable>
             {enabledPayments.map((p) => (
               <Pressable
                 key={p.id}
                 onPress={() => pay(p.id)}
                 disabled={busy}
-                className="h-16 flex-row items-center rounded-2xl border border-border bg-surface px-4 active:opacity-70"
+                className="min-h-[72px] flex-row items-center rounded-2xl border border-border bg-white px-4 py-3 active:opacity-70"
                 style={{ opacity: busy ? 0.5 : 1 }}
               >
-                <View className="mr-3 h-10 w-10 items-center justify-center rounded-xl" style={{ backgroundColor: p.color }}>
-                  <AppText className="font-bold text-sm text-white">{p.label.slice(0, 1)}</AppText>
+                <View className="mr-3 h-11 w-11 items-center justify-center rounded-2xl" style={{ backgroundColor: BRAND_BLUE }}>
+                  <Ionicons name="card-outline" size={22} color="#fff" />
                 </View>
                 <View className="flex-1">
-                  <AppText className="font-semibold text-base text-foreground">{p.label}</AppText>
-                  <AppText className="mt-0.5 text-xs text-muted">Xavfsiz checkout</AppText>
+                  <AppText className="font-bold text-base text-foreground">
+                    {canUseBalance ? 'Karta bilan tolash' : 'Karta bilan toldirish'}
+                  </AppText>
+                  <AppText className="mt-0.5 text-xs text-muted">
+                    {canUseBalance ? 'Xohlasangiz Stripe test karta bilan ham tolang' : 'Yetmagan summa Stripe test karta orqali'}
+                  </AppText>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                <View className="ml-3 h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE + '10' }}>
+                  <Ionicons name="chevron-forward" size={19} color={BRAND_BLUE} />
+                </View>
               </Pressable>
             ))}
           </View>
+          )}
           {busy && (
             <View className="mt-3 flex-row items-center justify-center">
               <ActivityIndicator color={BRAND_BLUE} />
               <AppText className="ml-2 text-sm text-muted">Toʻlov ochilmoqda...</AppText>
             </View>
           )}
+        </View>
         </View>
       </Modal>
     </View>

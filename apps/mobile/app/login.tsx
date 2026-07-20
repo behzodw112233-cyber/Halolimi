@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -39,10 +39,15 @@ function makeToken(): string {
 
 export default function Login() {
   const router = useRouter();
-  const { login, adoptSession } = useAuth();
+  const { adoptSession } = useAuth();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSentTo, setOtpSentTo] = useState<string | null>(null);
+  const [devCode, setDevCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const requestOtp = useAction(api.smsOtp.request);
+  const verifyOtp = useAction(api.smsOtp.verify);
 
   // Telegram login handshake.
   const startSession = useMutation(api.authTelegram.start);
@@ -60,7 +65,29 @@ export default function Login() {
     if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
     setBusy(true);
     try {
-      await login('+998' + digits.slice(-9), name.trim() || undefined);
+      const result = await requestOtp({ phone: '+998' + digits.slice(-9), purpose: 'login' });
+      setOtpSentTo(result.phone);
+      setDevCode(result.devCode ?? null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verifySmsCode = async () => {
+    if (!otpSentTo || otpCode.length !== 6 || busy) return;
+    setBusy(true);
+    try {
+      const result = await verifyOtp({
+        phone: otpSentTo,
+        code: otpCode,
+        purpose: 'login',
+        name: name.trim() || undefined,
+      });
+      if (!result.ok || !result.userId) {
+        Alert.alert('Kod xato', "SMS kod noto'g'ri yoki muddati tugagan.");
+        return;
+      }
+      await adoptSession(result.userId as Id<'users'>);
       router.replace('/home');
     } finally {
       setBusy(false);
@@ -147,13 +174,51 @@ export default function Login() {
 
               <Pressable
                 onPress={submit}
-                disabled={!valid || busy}
+                disabled={!valid || busy || !!otpSentTo}
                 style={[styles.primaryButton, { backgroundColor: valid ? BRAND_BLUE : '#C7D2DE' }]}
               >
                 <AppText style={styles.buttonText}>
-                  {busy ? 'Kutilmoqda...' : 'Davom etish'}
+                  {busy ? 'Kutilmoqda...' : otpSentTo ? 'Kod yuborildi' : 'SMS kod yuborish'}
                 </AppText>
               </Pressable>
+
+              {otpSentTo ? (
+                <View>
+                  <AppText style={styles.label}>SMS kod</AppText>
+                  <View style={styles.inputWrap}>
+                    <Ionicons name="keypad-outline" size={20} color="#9ca3af" />
+                    <TextInput
+                      value={otpCode}
+                      onChangeText={(value) => setOtpCode(value.replace(/[^0-9]/g, '').slice(0, 6))}
+                      placeholder="123456"
+                      placeholderTextColor="#9ca3af"
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      style={styles.input}
+                    />
+                  </View>
+                  {devCode ? (
+                    <AppText style={styles.devHint}>Dev OTP: {devCode}</AppText>
+                  ) : null}
+                  <Pressable
+                    onPress={verifySmsCode}
+                    disabled={otpCode.length !== 6 || busy}
+                    style={[styles.primaryButton, { backgroundColor: otpCode.length === 6 ? BRAND_BLUE : '#C7D2DE' }]}
+                  >
+                    <AppText style={styles.buttonText}>{busy ? 'Tekshirilmoqda...' : 'Kodni tasdiqlash'}</AppText>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      setOtpSentTo(null);
+                      setOtpCode('');
+                      setDevCode(null);
+                    }}
+                    className="mt-3 items-center"
+                  >
+                    <AppText style={styles.resendText}>Raqamni o'zgartirish</AppText>
+                  </Pressable>
+                </View>
+              ) : null}
 
               <View style={styles.divider}>
                 <View style={styles.line} />
@@ -308,5 +373,16 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: '#64748B',
     textAlign: 'center',
+  },
+  devHint: {
+    marginTop: 8,
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 13,
+    color: '#0A6CFF',
+  },
+  resendText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: BRAND_BLUE,
   },
 });

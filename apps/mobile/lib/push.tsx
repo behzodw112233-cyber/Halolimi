@@ -9,14 +9,16 @@ import { useAuth } from './auth';
 
 // Show a banner + play a sound even when a notification arrives in the
 // foreground (default behaviour is to stay silent while the app is open).
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 /** Route to the right screen when the user taps a notification. */
 function handleTap(response: Notifications.NotificationResponse) {

@@ -64,6 +64,8 @@ export const catVisual = (slug: string) =>
 export const CHART_PALETTE = ['#0A6CFF', '#16A34A', '#F59E0B', '#8B5CF6', '#EF4444', '#06B6D4', '#EC4899', '#94A3B8'];
 
 export const METHOD_COLOR: Record<string, string> = {
+  Stripe: '#635BFF',
+  Wallet: '#0A6CFF',
   Payme: '#33CCCC',
   Click: '#0A6CFF',
   Atmos: '#7C3AED',

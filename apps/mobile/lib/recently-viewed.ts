@@ -5,6 +5,21 @@ import { Platform } from 'react-native';
 
 const KEY = 'halolmi_recent';
 const MAX = 12;
+const CONVEX_ID_RE = /^[a-z0-9]{20,}$/i;
+
+function cleanIds(value: unknown, exclude?: string) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value
+    .filter((id): id is string => typeof id === 'string' && CONVEX_ID_RE.test(id))
+    .filter((id) => id !== exclude)
+    .filter((id) => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .slice(0, MAX);
+}
 
 // Same storage strategy as auth: SecureStore on native, localStorage on web.
 async function readIds(): Promise<string[]> {
@@ -13,8 +28,7 @@ async function readIds(): Promise<string[]> {
       Platform.OS === 'web'
         ? globalThis.localStorage?.getItem(KEY)
         : await SecureStore.getItemAsync(KEY);
-    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    return Array.isArray(parsed) ? (parsed as string[]) : [];
+    return cleanIds(raw ? (JSON.parse(raw) as unknown) : []);
   } catch {
     return [];
   }
@@ -43,7 +57,11 @@ export async function recordViewed(id: string): Promise<boolean> {
 export function useRecentlyViewed(exclude?: string): string[] {
   const [ids, setIds] = useState<string[]>([]);
   const refresh = useCallback(() => {
-    readIds().then((list) => setIds(exclude ? list.filter((x) => x !== exclude) : list));
+    readIds().then((list) => {
+      const next = cleanIds(list, exclude);
+      setIds(next);
+      if (next.length !== list.length) writeIds(next);
+    });
   }, [exclude]);
   useEffect(() => {
     refresh();

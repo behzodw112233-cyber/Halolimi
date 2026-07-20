@@ -50,12 +50,13 @@ function last6Months(tsList: number[]) {
 export const overview = query({
   args: {},
   handler: async (ctx) => {
-    const [listings, users, reports, payments, ads] = await Promise.all([
+    const [listings, users, reports, payments, ads, invoices] = await Promise.all([
       ctx.db.query('listings').collect(),
       ctx.db.query('users').collect(),
       ctx.db.query('reports').collect(),
       ctx.db.query('payments').collect(),
       ctx.db.query('ads').collect(),
+      ctx.db.query('invoices').collect(),
     ]);
 
     // --- totals ---
@@ -66,11 +67,26 @@ export const overview = query({
     const reportsNew = reports.filter((r) => r.status === 'new').length;
 
     const okPayments = payments.filter((p) => p.status === 'success');
-    const revenue = okPayments.reduce((s, p) => s + toDigits(p.amount), 0);
+    const successfulInvoices = invoices.filter((i) => i.status === 'success');
+    const pendingInvoices = invoices.filter((i) => i.status === 'pending');
+    const revenueInvoices = successfulInvoices.filter((i) => i.purpose === 'promote');
+    const topupInvoices = successfulInvoices.filter((i) => i.purpose === 'topup');
+    const revenue = revenueInvoices.reduce((s, i) => s + i.amount, 0);
+    const walletTopups = topupInvoices.reduce((s, i) => s + i.amount, 0);
+    const walletLiability = users.reduce((s, u) => s + (u.balance ?? 0), 0);
+    const stripeCashIn = successfulInvoices
+      .filter((i) => i.gateway === 'stripe')
+      .reduce((s, i) => s + i.amount, 0);
+    const walletRevenue = revenueInvoices
+      .filter((i) => i.gateway === 'wallet' || i.method === 'Wallet')
+      .reduce((s, i) => s + i.amount, 0);
+    const stripeRevenue = revenueInvoices
+      .filter((i) => i.gateway === 'stripe')
+      .reduce((s, i) => s + i.amount, 0);
     const startOfToday = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
-    const revenueToday = okPayments
-      .filter((p) => p._creationTime >= startOfToday)
-      .reduce((s, p) => s + toDigits(p.amount), 0);
+    const revenueToday = revenueInvoices
+      .filter((i) => (i.paidAt ?? i.createdAt) >= startOfToday)
+      .reduce((s, i) => s + i.amount, 0);
 
     // --- listings by category ---
     const catMap = new Map<string, number>();
@@ -99,11 +115,12 @@ export const overview = query({
 
     // --- payment methods ---
     const methodMap = new Map<string, { count: number; amount: number }>();
-    for (const p of payments) {
-      const cur = methodMap.get(p.method) ?? { count: 0, amount: 0 };
+    for (const i of successfulInvoices) {
+      const method = i.method ?? i.gateway ?? 'Unknown';
+      const cur = methodMap.get(method) ?? { count: 0, amount: 0 };
       cur.count += 1;
-      cur.amount += toDigits(p.amount);
-      methodMap.set(p.method, cur);
+      cur.amount += i.amount;
+      methodMap.set(method, cur);
     }
     const paymentMethods = [...methodMap.entries()].map(([method, v]) => ({ method, ...v }));
 
@@ -128,6 +145,21 @@ export const overview = query({
         revenue,
         revenueToday,
       },
+      money: {
+        revenue,
+        revenueToday,
+        walletTopups,
+        walletLiability,
+        stripeCashIn,
+        stripeRevenue,
+        walletRevenue,
+        pendingAmount: pendingInvoices.reduce((s, i) => s + i.amount, 0),
+        pendingInvoices: pendingInvoices.length,
+        paidInvoices: successfulInvoices.length,
+        failedInvoices: invoices.filter((i) => i.status === 'failed' || i.status === 'cancelled').length,
+        promoteInvoices: revenueInvoices.length,
+        topupInvoices: topupInvoices.length,
+      },
       byCategory,
       byStatus: { active, pending, rejected },
       categoryStatus,
@@ -150,7 +182,10 @@ export const overview = query({
         reports: last7(reports.map((r) => ({ ts: r._creationTime }))),
         // revenue per day in thousands of soʻm
         revenue: last7(
-          okPayments.map((p) => ({ ts: p._creationTime, v: toDigits(p.amount) / 1000 }))
+          revenueInvoices.map((i) => ({ ts: i.paidAt ?? i.createdAt, v: i.amount / 1000 }))
+        ),
+        topups: last7(
+          topupInvoices.map((i) => ({ ts: i.paidAt ?? i.createdAt, v: i.amount / 1000 }))
         ),
       },
       usersMonthly: last6Months(users.map((u) => u._creationTime)),

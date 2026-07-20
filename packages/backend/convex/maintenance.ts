@@ -58,7 +58,7 @@ async function wipeUserGeneratedData(ctx: MutationCtx) {
 
     const dealers = await ctx.db.query('dealers').collect();
     for (const dealer of dealers) {
-      storageIds.add(dealer.videoId);
+      if (dealer.videoId) storageIds.add(dealer.videoId);
       if (dealer.thumbId) storageIds.add(dealer.thumbId);
     }
 

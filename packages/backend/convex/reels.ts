@@ -2,11 +2,14 @@ import { v } from 'convex/values';
 import { mutation, query, type QueryCtx } from './_generated/server';
 import type { Doc, Id } from './_generated/dataModel';
 import { reelStatus } from './schema';
+import { enforceRateLimit } from './rateLimit';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const PERSONAL_SIGNAL_LIMIT = 40;
 const SAME_SELLER_LOOKAHEAD = 8;
+const PUBLIC_REEL_CANDIDATE_LIMIT = 240;
+const COMMENT_LIMIT = 200;
 
 type ReelCounts = {
   likes: number;
@@ -274,11 +277,11 @@ export const list = query({
     const now = Date.now();
     const rows = await ctx.db
       .query('reels')
-      .withIndex('by_active', (q) => q.eq('active', true))
-      .collect();
+      .withIndex('by_active_status', (q) => q.eq('active', true).eq('status', 'ready'))
+      .order('desc')
+      .take(Math.min(PUBLIC_REEL_CANDIDATE_LIMIT, take * 6));
     const ready = rows.filter(
       (r) =>
-        r.status === 'ready' &&
         !profile.hiddenReels.has(r._id) &&
         !(r.sellerId && profile.hiddenSellers.has(r.sellerId))
     );
@@ -319,10 +322,13 @@ export const bySeller = query({
     const profile = await viewerProfile(ctx, userId);
     const rows = await ctx.db
       .query('reels')
-      .withIndex('by_seller', (q) => q.eq('sellerId', sellerId))
-      .collect();
+      .withIndex('by_seller_status_active', (q) =>
+        q.eq('sellerId', sellerId).eq('status', 'ready').eq('active', true)
+      )
+      .order('desc')
+      .take(Math.max(12, Math.min(limit ?? 12, 40) * 3));
     const ready = rows
-      .filter((r) => r.status === 'ready' && r.active && !profile.hiddenReels.has(r._id))
+      .filter((r) => !profile.hiddenReels.has(r._id))
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit ?? 12);
     return Promise.all(ready.map((r) => withUrls(ctx, r, userId)));
@@ -350,8 +356,9 @@ export const comments = query({
     const rows = await ctx.db
       .query('reelComments')
       .withIndex('by_reel', (q) => q.eq('reelId', reelId))
-      .collect();
-    return rows.sort((a, b) => a.createdAt - b.createdAt);
+      .order('desc')
+      .take(COMMENT_LIMIT);
+    return rows.reverse();
   },
 });
 
@@ -457,6 +464,7 @@ export const remove = mutation({
 export const toggleLike = mutation({
   args: { userId: v.id('users'), reelId: v.id('reels') },
   handler: async (ctx, { userId, reelId }) => {
+    await enforceRateLimit(ctx, 'reelReactionUser', `${userId}:like`);
     const existing = await ctx.db
       .query('reelLikes')
       .withIndex('by_user_reel', (q) => q.eq('userId', userId).eq('reelId', reelId))
@@ -473,6 +481,7 @@ export const toggleLike = mutation({
 export const toggleSave = mutation({
   args: { userId: v.id('users'), reelId: v.id('reels') },
   handler: async (ctx, { userId, reelId }) => {
+    await enforceRateLimit(ctx, 'reelReactionUser', `${userId}:save`);
     const existing = await ctx.db
       .query('reelSaves')
       .withIndex('by_user_reel', (q) => q.eq('userId', userId).eq('reelId', reelId))
@@ -494,6 +503,8 @@ export const addComment = mutation({
     text: v.string(),
   },
   handler: async (ctx, { reelId, userId, userName, text }) => {
+    await enforceRateLimit(ctx, 'reelCommentUser', userId ?? `anon:${userName}`);
+    await enforceRateLimit(ctx, 'reelCommentTarget', reelId);
     const clean = text.trim();
     if (!clean) throw new Error('Izoh bosh bolmasin');
     return await ctx.db.insert('reelComments', {
@@ -509,6 +520,7 @@ export const addComment = mutation({
 export const recordView = mutation({
   args: { reelId: v.id('reels') },
   handler: async (ctx, { reelId }) => {
+    await enforceRateLimit(ctx, 'reelView', reelId);
     const reel = await ctx.db.get(reelId);
     if (!reel) return;
     await ctx.db.patch(reelId, { views: reel.views + 1 });
@@ -523,6 +535,7 @@ export const recordWatch = mutation({
     replayed: v.optional(v.boolean()),
   },
   handler: async (ctx, { reelId, ms, durationMs, replayed }) => {
+    await enforceRateLimit(ctx, 'reelWatch', reelId);
     const reel = await ctx.db.get(reelId);
     if (!reel || !Number.isFinite(ms) || ms <= 0) return;
     const cappedMs = Math.min(ms, 120_000);
@@ -575,6 +588,7 @@ export const hideForUser = mutation({
 export const recordTap = mutation({
   args: { reelId: v.id('reels'), kind: v.union(v.literal('chat'), v.literal('call')) },
   handler: async (ctx, { reelId, kind }) => {
+    await enforceRateLimit(ctx, 'reelTap', `${kind}:${reelId}`);
     const reel = await ctx.db.get(reelId);
     if (!reel) return;
     await ctx.db.patch(

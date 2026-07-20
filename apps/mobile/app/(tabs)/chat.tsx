@@ -4,7 +4,7 @@ import { useQuery } from 'convex/react';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, FlatList, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { BRAND_BLUE } from '../../constants/theme';
@@ -40,7 +40,7 @@ export default function Chat() {
               className="items-center overflow-hidden rounded-[30px] border border-white/70 bg-white/65 px-5 py-7"
               style={styles.softShadow}
             >
-              <BlurView intensity={34} tint="light" style={StyleSheet.absoluteFill} />
+              <GlassFill intensity={34} />
               <View className="mb-4 h-16 w-16 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE + '1A' }}>
                 <Ionicons name="chatbubbles-outline" size={32} color={BRAND_BLUE} />
               </View>
@@ -83,14 +83,16 @@ export default function Chat() {
             className="mt-3 overflow-hidden rounded-[28px] border border-white/70 p-4"
             style={styles.heroCard}
           >
-            <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
-            <LinearGradient
-              pointerEvents="none"
-              colors={['rgba(255,255,255,0.92)', 'rgba(255,255,255,0.20)', 'transparent']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
+            <GlassFill intensity={40} />
+            {Platform.OS === 'web' ? null : (
+              <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(255,255,255,0.92)', 'rgba(255,255,255,0.20)', 'transparent']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+            )}
             <View className="absolute -right-10 -top-10 h-28 w-28 rounded-full" style={{ backgroundColor: BRAND_BLUE + '18' }} />
             <View className="flex-row items-center justify-between">
               <View className="flex-1 pr-3">
@@ -146,7 +148,7 @@ export default function Chat() {
                 className="mb-3 flex-row items-center overflow-hidden rounded-[26px] border border-white/70 p-3 active:opacity-90"
                 style={styles.threadCard}
               >
-                <BlurView intensity={30} tint="light" style={StyleSheet.absoluteFill} />
+                <GlassFill intensity={30} />
                 <View className="mr-3">
                   <View className="items-center justify-center rounded-2xl" style={{ width: 52, height: 52, backgroundColor: BRAND_BLUE }}>
                     <AppText className="font-semibold text-lg text-white">
@@ -199,7 +201,15 @@ function Stat({ label, value, active = false }: { label: string; value: number; 
   );
 }
 
+function GlassFill({ intensity }: { intensity: number }) {
+  if (Platform.OS === 'web') {
+    return <View style={[StyleSheet.absoluteFill, styles.webGlass]} />;
+  }
+  return <BlurView intensity={intensity} tint="light" style={StyleSheet.absoluteFill} />;
+}
+
 function ScreenGlow() {
+  if (Platform.OS === 'web') return null;
   return (
     <>
       <LinearGradient
@@ -214,28 +224,52 @@ function ScreenGlow() {
   );
 }
 
+const heroShadow =
+  Platform.OS === 'web'
+    ? ({ boxShadow: '0 14px 24px rgba(15, 23, 42, 0.08)' } as any)
+    : {
+        shadowColor: '#0F172A',
+        shadowOpacity: 0.12,
+        shadowRadius: 24,
+        shadowOffset: { width: 0, height: 14 },
+        elevation: 8,
+      };
+
+const softShadow =
+  Platform.OS === 'web'
+    ? ({ boxShadow: '0 12px 20px rgba(15, 23, 42, 0.07)' } as any)
+    : {
+        shadowColor: '#0F172A',
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        shadowOffset: { width: 0, height: 12 },
+        elevation: 6,
+      };
+
+const threadShadow =
+  Platform.OS === 'web'
+    ? ({ boxShadow: '0 8px 16px rgba(15, 23, 42, 0.06)' } as any)
+    : {
+        shadowColor: '#0F172A',
+        shadowOpacity: 0.08,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 10 },
+        elevation: 4,
+      };
+
 const styles = StyleSheet.create({
   heroCard: {
     backgroundColor: 'rgba(255,255,255,0.62)',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 14 },
-    elevation: 8,
+    ...heroShadow,
   },
   softShadow: {
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 6,
+    ...softShadow,
   },
   threadCard: {
     backgroundColor: 'rgba(255,255,255,0.68)',
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 4,
+    ...threadShadow,
+  },
+  webGlass: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
   },
 });

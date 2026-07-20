@@ -6,9 +6,9 @@ import type { FunctionReturnType } from 'convex/server';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { SkeletonGroup } from 'heroui-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   FlatList,
@@ -567,9 +567,7 @@ export default function Conversation() {
         keyboardVerticalOffset={headerHeight}
       >
         {!messages ? (
-          <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color={BRAND_BLUE} />
-          </View>
+          <ChatMessagesSkeleton canReviewSeller={canReviewSeller} />
         ) : (
           <FlatList
             data={data}
@@ -764,6 +762,62 @@ export default function Conversation() {
         </View>
       </Modal>
     </View>
+  );
+}
+
+function ChatMessagesSkeleton({ canReviewSeller }: { canReviewSeller: boolean }) {
+  const rows = [
+    { mine: false, width: '62%', lines: [120, 180], showAvatar: true },
+    { mine: true, width: '72%', lines: [210, 140], showAvatar: false },
+    { mine: false, width: '54%', lines: [160], showAvatar: true },
+    { mine: true, width: '48%', lines: [130], showAvatar: false },
+    { mine: false, width: '78%', lines: [220, 190, 110], showAvatar: true },
+  ] as const;
+
+  return (
+    <SkeletonGroup isLoading isSkeletonOnly variant="shimmer">
+      <View className="flex-1 px-3 py-3">
+        {canReviewSeller ? (
+          <>
+            <View className="mb-3">
+              <SkeletonGroup.Item className="h-16 w-full rounded-2xl" />
+            </View>
+            <View className="mb-4">
+              <SkeletonGroup.Item className="h-20 w-full rounded-2xl" />
+            </View>
+          </>
+        ) : null}
+
+        {rows.map((row, index) => (
+          <View
+            key={index}
+            className={`mb-3 flex-row items-end ${row.mine ? 'justify-end' : 'justify-start'}`}
+          >
+            {!row.mine && row.showAvatar ? (
+              <SkeletonGroup.Item className="mr-2 h-8 w-8 rounded-full" />
+            ) : null}
+            <View
+              className="rounded-2xl px-3.5 py-3"
+              style={{
+                width: row.width,
+                backgroundColor: row.mine ? BRAND_BLUE + '18' : '#EAEAEC',
+              }}
+            >
+              {row.lines.map((width, lineIndex) => (
+                <SkeletonGroup.Item
+                  key={lineIndex}
+                  className={`h-4 rounded-md ${lineIndex > 0 ? 'mt-2' : ''}`}
+                  style={{ width }}
+                />
+              ))}
+              <View className="mt-3 items-end">
+                <SkeletonGroup.Item className="h-3 w-12 rounded-md" />
+              </View>
+            </View>
+          </View>
+        ))}
+      </View>
+    </SkeletonGroup>
   );
 }
 

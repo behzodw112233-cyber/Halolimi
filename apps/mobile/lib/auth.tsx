@@ -12,6 +12,7 @@ import {
 import { Alert, AppState, Platform } from 'react-native';
 
 const KEY = 'halolmi_auth';
+const HEARTBEAT_INTERVAL_MS = Platform.OS === 'web' ? 120_000 : 45_000;
 
 type Stored = { userId?: string; rootUserId?: string; onboarded?: boolean };
 
@@ -64,6 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const getOrCreate = useMutation(api.users.getOrCreate);
   const heartbeat = useMutation(api.users.heartbeat);
   const user = useQuery(api.users.get, userId ? { id: userId } : 'skip');
+  const verifiedUserId = userId && user ? userId : null;
+  const authLoading = loading || (!!userId && user === undefined);
 
   // Hydrate persisted identity on mount.
   useEffect(() => {
@@ -131,12 +134,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Presence heartbeat powers seller "online / last seen" trust signals.
   useEffect(() => {
-    if (!userId) return;
+    if (!verifiedUserId) return;
     const ping = () => {
-      if (AppState.currentState === 'active') heartbeat({ id: userId }).catch(() => {});
+      if (AppState.currentState === 'active') heartbeat({ id: verifiedUserId }).catch(() => {});
     };
     ping();
-    const interval = setInterval(ping, 45_000);
+    const interval = setInterval(ping, HEARTBEAT_INTERVAL_MS);
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') ping();
     });
@@ -144,15 +147,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearInterval(interval);
       sub.remove();
     };
-  }, [heartbeat, userId]);
+  }, [heartbeat, verifiedUserId]);
 
   return (
     <AuthContext.Provider
       value={{
-        userId,
+        userId: verifiedUserId,
         rootUserId,
         user,
-        loading,
+        loading: authLoading,
         onboarded,
         login,
         adoptSession,

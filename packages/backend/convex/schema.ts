@@ -44,7 +44,6 @@ export const bountyPlatform = v.union(
   v.literal('vimeo'),
   v.literal('other')
 );
-
 export const reelStatus = v.union(
   v.literal('processing'),
   v.literal('ready'),
@@ -67,6 +66,31 @@ export const leadStatus = v.union(
 );
 
 export default defineSchema({
+  rateLimits: defineTable({
+    name: v.string(),
+    key: v.string(),
+    count: v.number(),
+    windowStart: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_name_key', ['name', 'key'])
+    .index('by_updated', ['updatedAt']),
+
+  smsOtps: defineTable({
+    phone: v.string(),
+    purpose: v.union(v.literal('login'), v.literal('listing')),
+    codeHash: v.string(),
+    status: v.union(v.literal('pending'), v.literal('verified'), v.literal('failed'), v.literal('expired')),
+    attempts: v.number(),
+    provider: v.string(),
+    providerMessageId: v.optional(v.string()),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    verifiedAt: v.optional(v.number()),
+  })
+    .index('by_phone_purpose_status_created', ['phone', 'purpose', 'status', 'createdAt'])
+    .index('by_expires', ['expiresAt']),
+
   categories: defineTable({
     slug: v.string(),
     name: v.string(),
@@ -154,8 +178,14 @@ export default defineSchema({
     // the seller's profile and the card shows their name/avatar. Promoting a
     // `foydalanuvchi` to a dealer = creating a row with their userId.
     userId: v.optional(v.id('users')),
-    videoId: v.id('_storage'), // uploaded video file
+    videoId: v.optional(v.id('_storage')), // legacy Convex storage video file
     thumbId: v.optional(v.id('_storage')), // poster image (optional)
+    hlsUrl: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
+    videoProvider: v.optional(
+      v.union(v.literal('convex'), v.literal('cloudflare'), v.literal('mux'), v.literal('bunny'))
+    ),
+    providerVideoId: v.optional(v.string()),
     order: v.number(),
     active: v.boolean(),
     createdAt: v.number(),
@@ -202,8 +232,10 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index('by_active', ['active'])
+    .index('by_active_status', ['active', 'status'])
     .index('by_status', ['status'])
     .index('by_seller', ['sellerId'])
+    .index('by_seller_status_active', ['sellerId', 'status', 'active'])
     .index('by_listing', ['listingId']),
 
   reelLikes: defineTable({
@@ -266,7 +298,7 @@ export default defineSchema({
     soldCount: v.optional(v.number()),
     // Presence: last heartbeat time. "online" = within the last minute.
     lastSeen: v.optional(v.number()),
-    // Wallet balance in UZS (soʻm), topped up via inPAY.
+    // Wallet balance in UZS (som), topped up via Stripe Checkout in test mode.
     balance: v.optional(v.number()),
     // Marked as an official dealer from the admin panel. Only dealers can have
     // showcase videos attached (see dealers table / dilerlar admin page).
@@ -373,7 +405,8 @@ export default defineSchema({
     endedAt: v.optional(v.number()),
   })
     .index('by_callee', ['calleeId'])
-    .index('by_caller', ['callerId']),
+    .index('by_caller', ['callerId'])
+    .index('by_callee_status_created', ['calleeId', 'status', 'createdAt']),
 
   // ICE candidates trickled by each side while a call is connecting.
   callCandidates: defineTable({
@@ -381,7 +414,9 @@ export default defineSchema({
     senderId: v.id('users'),
     candidate: v.string(),
     createdAt: v.number(),
-  }).index('by_call', ['callId']),
+  })
+    .index('by_call', ['callId'])
+    .index('by_call_sender', ['callId', 'senderId']),
 
   // Per-user view of a thread: unread count, read cursor, typing signal, and the
   // display name of the counterpart from this member's perspective.
@@ -512,17 +547,23 @@ export default defineSchema({
     .index('by_status', ['status'])
     .index('by_updated', ['updatedAt']),
 
-  // inPAY payment invoices. Created pending when the app requests a top-up,
-  // flipped to success/failed when inPAY's webhook is verified server-side.
+  // Stripe Checkout invoices. Created pending when the app requests a top-up or
+  // listing promotion, then settled only by verified Stripe webhook/reconciliation.
   invoices: defineTable({
-    orderId: v.string(), // inPAY order_id
+    orderId: v.string(), // Stripe Checkout Session id
     userId: v.id('users'),
     amount: v.number(), // UZS
     purpose: v.string(), // 'topup' | 'promote'
-    method: v.optional(v.string()), // click | payme | inPAY
+    method: v.optional(v.string()),
     status: invoiceStatus,
     payUrl: v.optional(v.string()),
     transactionId: v.optional(v.number()),
+    gateway: v.optional(v.string()),
+    checkoutSessionId: v.optional(v.string()),
+    paymentIntentId: v.optional(v.string()),
+    stripeAmount: v.optional(v.number()),
+    stripeCurrency: v.optional(v.string()),
+    stripeEventId: v.optional(v.string()),
     // Promotion target (purpose === 'promote').
     listingId: v.optional(v.id('listings')),
     tier: v.optional(listingTier),
@@ -531,6 +572,17 @@ export default defineSchema({
   })
     .index('by_order', ['orderId'])
     .index('by_user', ['userId']),
+
+  stripeEvents: defineTable({
+    eventId: v.string(),
+    type: v.string(),
+    orderId: v.optional(v.string()),
+    receivedAt: v.number(),
+    processedAt: v.optional(v.number()),
+  })
+    .index('by_event', ['eventId'])
+    .index('by_order', ['orderId']),
+
   bountyCreators: defineTable({
     phone: v.string(),
     legalName: v.string(),

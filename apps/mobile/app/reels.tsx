@@ -78,6 +78,7 @@ export default function ReelsScreen() {
   const { start, sellerId } = useLocalSearchParams<{ start?: string; sellerId?: string }>();
   const { userId, user } = useAuth();
   const { height } = useWindowDimensions();
+  const { top, bottom } = useSafeAreaInsets();
   const globalReelsQuery = useQuery(api.reels.list, sellerId ? 'skip' : userId ? { userId, limit: 40 } : { limit: 40 });
   const sellerReelsQuery = useQuery(
     api.reels.bySeller,
@@ -118,21 +119,12 @@ export default function ReelsScreen() {
 
   if (reels.length === 0) {
     return (
-      <View className="flex-1 items-center justify-center bg-black px-8">
-        <Ionicons name="play-circle-outline" size={56} color="#fff" />
-        <AppText className="mt-4 text-center font-bold text-2xl text-white">
-          Video bozor hali bosh
-        </AppText>
-        <AppText className="mt-2 text-center text-base leading-6 text-white/70">
-          Admin paneldan birinchi hayvon videosini qoshing.
-        </AppText>
-        <Pressable
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home'))}
-          className="mt-6 rounded-full bg-white px-6 py-3 active:opacity-80"
-        >
-          <AppText className="font-semibold text-black">Ortga qaytish</AppText>
-        </Pressable>
-      </View>
+      <EmptyReelsState
+        top={top}
+        bottom={bottom}
+        onBack={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home'))}
+        onCreate={() => router.push('/video-create' as never)}
+      />
     );
   }
 
@@ -168,6 +160,115 @@ export default function ReelsScreen() {
         userName={user?.name ?? user?.phone ?? 'Foydalanuvchi'}
         onClose={() => setCommentsFor(null)}
       />
+    </View>
+  );
+}
+
+function EmptyReelsState({
+  top,
+  bottom,
+  onBack,
+  onCreate,
+}: {
+  top: number;
+  bottom: number;
+  onBack: () => void;
+  onCreate: () => void;
+}) {
+  return (
+    <View className="flex-1 overflow-hidden bg-black">
+      <LinearGradient
+        colors={['#06112A', '#0A6CFF', '#020617']}
+        locations={[0, 0.48, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View className="absolute -right-20 top-16 h-56 w-56 rounded-full bg-white/10" />
+      <View className="absolute -left-24 bottom-24 h-64 w-64 rounded-full bg-black/25" />
+
+      <View className="absolute left-0 right-0 flex-row items-center justify-between px-4" style={{ top: top + 8 }}>
+        <Pressable onPress={onBack} hitSlop={10} className="h-10 w-10 items-center justify-center rounded-full bg-black/30 active:opacity-75">
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </Pressable>
+        <View className="rounded-full bg-black/24 px-3.5 py-2">
+          <AppText className="font-bold text-sm text-white">Video bozor</AppText>
+        </View>
+        <View className="h-10 w-10" />
+      </View>
+
+      <View className="flex-1 justify-center px-6" style={{ paddingTop: top + 52, paddingBottom: bottom + 28 }}>
+        <View className="mb-8 h-72 items-center justify-center">
+          {[0, 1, 2].map((item) => (
+            <View
+              key={item}
+              className="absolute overflow-hidden rounded-[28px] border border-white/16"
+              style={{
+                width: item === 1 ? 150 : 132,
+                height: item === 1 ? 246 : 218,
+                left: item === 0 ? 18 : undefined,
+                right: item === 2 ? 18 : undefined,
+                transform: [{ rotate: item === 0 ? '-10deg' : item === 2 ? '10deg' : '0deg' }],
+                opacity: item === 1 ? 1 : 0.72,
+                shadowColor: '#000',
+                shadowOpacity: 0.28,
+                shadowRadius: 22,
+                shadowOffset: { width: 0, height: 14 },
+                elevation: item === 1 ? 9 : 5,
+              }}
+            >
+              <LinearGradient
+                colors={
+                  item === 0
+                    ? ['#0F766E', '#38BDF8', '#082F49']
+                    : item === 1
+                      ? ['#111827', '#2563EB', '#030712']
+                      : ['#7C2D12', '#F97316', '#111827']
+                }
+                style={StyleSheet.absoluteFill}
+              />
+              <View className="absolute left-3 top-3 h-8 w-8 items-center justify-center rounded-full bg-white/18">
+                <Ionicons name={item === 1 ? 'play' : 'videocam'} size={16} color="#fff" style={{ marginLeft: item === 1 ? 2 : 0 }} />
+              </View>
+              <View className="absolute bottom-3 left-3 right-3">
+                <View className="mb-2 h-2.5 rounded-full bg-white/70" style={{ width: item === 1 ? '78%' : '62%' }} />
+                <View className="h-2 rounded-full bg-white/35" style={{ width: item === 1 ? '54%' : '44%' }} />
+              </View>
+            </View>
+          ))}
+        </View>
+
+        <View className="items-center">
+          <View className="mb-4 h-14 w-14 items-center justify-center rounded-full bg-white/14">
+            <Ionicons name="sparkles" size={26} color="#fff" />
+          </View>
+          <AppText className="text-center font-bold text-3xl leading-9 text-white">
+            Video bozor tayyor
+          </AppText>
+          <AppText className="mt-3 max-w-[320px] text-center text-base leading-6 text-white/76">
+            Birinchi hayvon videosini joylang. Bu yerda xaridorlar hayvonni tirik ko'rib, tezroq ishonch hosil qiladi.
+          </AppText>
+        </View>
+
+        <View className="mt-8 gap-3">
+          <Pressable
+            onPress={onCreate}
+            className="h-14 flex-row items-center justify-center rounded-2xl bg-white active:opacity-90"
+          >
+            <Ionicons name="add-circle" size={21} color={BRAND_BLUE} />
+            <AppText className="ml-2 font-bold text-base" style={{ color: BRAND_BLUE }}>
+              Video qo'shish
+            </AppText>
+          </Pressable>
+          <Pressable
+            onPress={onBack}
+            className="h-13 flex-row items-center justify-center rounded-2xl border border-white/16 bg-black/18 active:opacity-80"
+          >
+            <Ionicons name="home-outline" size={19} color="#fff" />
+            <AppText className="ml-2 font-semibold text-base text-white">Asosiyga qaytish</AppText>
+          </Pressable>
+        </View>
+      </View>
     </View>
   );
 }

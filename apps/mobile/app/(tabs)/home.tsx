@@ -1,7 +1,7 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Ionicons } from '@expo/vector-icons';
-import { useAction, useMutation, usePaginatedQuery, useQuery } from 'convex/react';
+import { useAction, useConvexConnectionState, useMutation, usePaginatedQuery, useQuery } from 'convex/react';
 import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -60,6 +60,8 @@ type ReelPreview = {
   city?: string;
   videoUrl?: string | null;
   thumbUrl?: string | null;
+  videoProvider?: string | null;
+  providerVideoId?: string | null;
   sellerName?: string | null;
 };
 
@@ -110,12 +112,19 @@ async function readSavedAiSearches() {
   }
 }
 
-function thumbnailCandidates(url?: string | null) {
-  if (!url) return [];
+function cloudflareThumbnailUrl(uid: string, second: number) {
+  return `https://videodelivery.net/${uid}/thumbnails/thumbnail.jpg?time=${second}s&height=420&fit=cover`;
+}
+
+function thumbnailCandidates(url?: string | null, providerVideoId?: string | null) {
+  const cloudflareFrames = providerVideoId
+    ? [1, 2, 3, 4].map((second) => cloudflareThumbnailUrl(providerVideoId, second))
+    : [];
+  if (!url) return cloudflareFrames;
   if (url.includes('/thumbnails/thumbnail.jpg') && !url.includes('?')) {
-    return [url, `${url}?time=1s&height=360`, `${url}?time=2s&height=360`];
+    return [url, `${url}?time=1s&height=360`, `${url}?time=2s&height=360`, ...cloudflareFrames];
   }
-  return [url];
+  return [url, ...cloudflareFrames];
 }
 
 function safePreviewCall(fn: () => void) {
@@ -133,7 +142,7 @@ function VideoBozorPreview({
   reel: ReelPreview | null;
   onPress: () => void;
 }) {
-  const candidates = useMemo(() => thumbnailCandidates(reel?.thumbUrl), [reel?.thumbUrl]);
+  const candidates = useMemo(() => thumbnailCandidates(reel?.thumbUrl, reel?.providerVideoId), [reel?.thumbUrl, reel?.providerVideoId]);
   const [candidateIndex, setCandidateIndex] = useState(0);
   const imageUrl = candidates[candidateIndex];
   const showVideoFallback = !!reel?.videoUrl && !imageUrl;
@@ -205,6 +214,7 @@ function VideoBozorPreview({
 }
 
 function ScreenGlow() {
+  if (Platform.OS === 'web') return null;
   return (
     <>
       <LinearGradient
@@ -252,10 +262,11 @@ const homeStyles = StyleSheet.create({
 });
 
 function VideoBozorMedia({ reel }: { reel: ReelPreview | null }) {
-  const candidates = useMemo(() => thumbnailCandidates(reel?.thumbUrl), [reel?.thumbUrl]);
+  const candidates = useMemo(() => thumbnailCandidates(reel?.thumbUrl, reel?.providerVideoId), [reel?.thumbUrl, reel?.providerVideoId]);
   const [candidateIndex, setCandidateIndex] = useState(0);
   const imageUrl = candidates[candidateIndex];
   const showVideoFallback = !!reel?.videoUrl && !imageUrl;
+  const shimmer = useRef(new Animated.Value(0)).current;
   const player = useVideoPlayer(showVideoFallback && reel?.videoUrl ? reel.videoUrl : '', (p) => {
     p.loop = true;
     p.muted = true;
@@ -263,7 +274,37 @@ function VideoBozorMedia({ reel }: { reel: ReelPreview | null }) {
 
   useEffect(() => {
     setCandidateIndex(0);
-  }, [reel?._id, reel?.thumbUrl]);
+  }, [reel?._id, reel?.thumbUrl, reel?.providerVideoId]);
+
+  useEffect(() => {
+    if (candidates.length <= 1) return;
+    const id = setInterval(() => {
+      setCandidateIndex((i) => (i + 1) % candidates.length);
+    }, 950);
+    return () => clearInterval(id);
+  }, [candidates.length]);
+
+  useEffect(() => {
+    if (reel) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, {
+          toValue: 1,
+          duration: 1100,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmer, {
+          toValue: 0,
+          duration: 1100,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [reel, shimmer]);
 
   useEffect(() => {
     if (!showVideoFallback) {
@@ -302,8 +343,40 @@ function VideoBozorMedia({ reel }: { reel: ReelPreview | null }) {
   }
 
   return (
-    <View className="h-full w-full items-center justify-center">
-      <Ionicons name="videocam" size={26} color="#fff" />
+    <View className="h-full w-full overflow-hidden">
+      <LinearGradient
+        colors={['#173B70', '#2F7AF2', '#07182F']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          top: -18,
+          bottom: -18,
+          width: 42,
+          backgroundColor: 'rgba(255,255,255,0.22)',
+          transform: [
+            {
+              translateX: shimmer.interpolate({
+                inputRange: [0, 1],
+                outputRange: [-46, 130],
+              }),
+            },
+            { rotate: '18deg' },
+          ],
+        }}
+      />
+      <View className="h-full w-full items-center justify-center">
+        <View className="h-10 w-10 items-center justify-center rounded-full bg-white/18">
+          <Ionicons name="videocam" size={22} color="#fff" />
+        </View>
+        <AppText className="mt-2 px-2 text-center text-[11px] font-semibold text-white/86" numberOfLines={1}>
+          Video tez orada
+        </AppText>
+      </View>
     </View>
   );
 }
@@ -463,6 +536,7 @@ function DealerAd({ d }: { d: DealerAdData }) {
 export default function Home() {
   const router = useRouter();
   const { userId } = useAuth();
+  const convexState = useConvexConnectionState();
   const homeVariant = useExperiment('home_section', HOME_VARIANTS, userId);
   const isGlassHome = homeVariant === 'kabinet_glass';
   const openThread = useMutation(api.messages.openThread);
@@ -495,6 +569,7 @@ export default function Home() {
   };
   const [feedNow, setFeedNow] = useState(() => Date.now());
   const [refreshing, setRefreshing] = useState(false);
+  const [showDataIssue, setShowDataIssue] = useState(false);
   const {
     results: listings,
     status: feedStatus,
@@ -546,6 +621,7 @@ export default function Home() {
   };
 
   const onRefresh = () => {
+    setShowDataIssue(false);
     setRefreshing(true);
     setFeedNow(Date.now());
   };
@@ -560,7 +636,7 @@ export default function Home() {
     setAiOpen(true);
     setAiLoading(true);
     try {
-      const result = (await askAi({ text })) as AiAdvice;
+      const result = (await askAi({ text, userId: userId ?? undefined })) as AiAdvice;
       setAiAdvice(result);
       setStoredValue(
         LAST_AI_SEARCH_KEY,
@@ -605,6 +681,7 @@ export default function Home() {
       const { text } = (await transcribeVoice({
         audioBase64,
         mimeType: 'audio/m4a',
+        userId: userId ?? undefined,
       })) as { text: string };
       const next = text.trim();
       if (next) {
@@ -646,6 +723,15 @@ export default function Home() {
       setRefreshing(false);
     }
   }, [feedStatus, refreshing]);
+
+  useEffect(() => {
+    if (feedStatus !== 'LoadingFirstPage') {
+      setShowDataIssue(false);
+      return;
+    }
+    const timeout = setTimeout(() => setShowDataIssue(true), 8_000);
+    return () => clearTimeout(timeout);
+  }, [feedStatus, feedNow]);
 
   useEffect(() => {
     readSavedAiSearches().then(setSavedAiSearches).catch(() => {});
@@ -1256,10 +1342,31 @@ export default function Home() {
               <View className="mx-4 mt-6 overflow-hidden rounded-[26px] border border-white/70 bg-white/65 px-4 py-3" style={homeStyles.headerCard}>
                 <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
                 <AppText className="font-bold text-lg text-foreground">
-                  {feedStatus === 'LoadingFirstPage'
+                  {showDataIssue && feedStatus === 'LoadingFirstPage'
+                    ? 'Backendga ulanish sekin...'
+                    : feedStatus === 'LoadingFirstPage'
                     ? 'Eʼlonlar yuklanmoqda...'
                     : `${listings.length} ta eʼlon yuklandi`}
                 </AppText>
+                {showDataIssue && feedStatus === 'LoadingFirstPage' ? (
+                  <View className="mt-2">
+                    <AppText className="text-sm leading-5 text-muted">
+                      {convexState.isWebSocketConnected
+                        ? "So'rov javobini kutyapmiz. Backend deploy yoki query loglarini tekshiring."
+                        : "Convex WebSocket ulanmayapti. Internet, VPN/proxy yoki EXPO_PUBLIC_CONVEX_URL ni tekshiring."}
+                    </AppText>
+                    <Pressable
+                      onPress={() => {
+                        setShowDataIssue(false);
+                        setFeedNow(Date.now());
+                      }}
+                      className="mt-3 self-start rounded-full px-4 py-2 active:opacity-80"
+                      style={{ backgroundColor: BRAND_BLUE }}
+                    >
+                      <AppText className="font-semibold text-sm text-white">Qayta urinish</AppText>
+                    </Pressable>
+                  </View>
+                ) : null}
                 <Pressable
                   onPress={() => router.push('/search' as never)}
                   className="mt-1 flex-row items-center active:opacity-70"

@@ -6,6 +6,7 @@ import { createForUser } from './notifications';
 import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { listingStatus, listingTier } from './schema';
 import { computeSellerTrust } from './trust';
+import { enforceRateLimit } from './rateLimit';
 
 // Relative promotion strength per tier (multiplied by the admin promo weight).
 const TIER_WEIGHT: Record<string, number> = { alo: 1, zor: 2, vip: 4, lux: 8 };
@@ -493,6 +494,7 @@ export const create = mutation({
     lng: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    if (args.ownerId) await enforceRateLimit(ctx, 'createListingUser', args.ownerId);
     // Admin control: blocked users cannot create listings.
     if (args.ownerId) {
       const owner = await ctx.db.get(args.ownerId);
@@ -557,6 +559,7 @@ export const setStatus = mutation({
 export const incrementViews = mutation({
   args: { id: v.id('listings') },
   handler: async (ctx, { id }) => {
+    await enforceRateLimit(ctx, 'listingView', id);
     const l = await ctx.db.get(id);
     if (!l) return;
     await ctx.db.patch(id, { views: (l.views ?? 0) + 1 });
@@ -612,14 +615,20 @@ export const related = query({
 
 export const recommendations = query({
   args: {
-    recentIds: v.optional(v.array(v.id('listings'))),
-    savedIds: v.optional(v.array(v.id('listings'))),
+    recentIds: v.optional(v.array(v.string())),
+    savedIds: v.optional(v.array(v.string())),
     limit: v.optional(v.number()),
     now: v.optional(v.number()),
   },
   handler: async (ctx, { recentIds = [], savedIds = [], limit, now: nowArg }) => {
     const seen = new Set<string>();
-    const signalIds = [...recentIds, ...savedIds].filter((id) => {
+    const normalizeListingIds = (ids: string[]) =>
+      ids
+        .map((id) => ctx.db.normalizeId('listings', id))
+        .filter((id): id is NonNullable<typeof id> => id !== null);
+    const normalizedRecentIds = normalizeListingIds(recentIds);
+    const normalizedSavedIds = normalizeListingIds(savedIds);
+    const signalIds = [...normalizedRecentIds, ...normalizedSavedIds].filter((id) => {
       if (seen.has(id)) return false;
       seen.add(id);
       return true;
@@ -637,7 +646,7 @@ export const recommendations = query({
       map.set(key, (map.get(key) ?? 0) + amount);
     };
 
-    recentIds.forEach((id, i) => {
+    normalizedRecentIds.forEach((id, i) => {
       const l = signals.find((s) => s._id === id);
       if (!l) return;
       const weight = Math.max(1, 6 - i);
@@ -645,7 +654,7 @@ export const recommendations = query({
       bump(cityScores, l.city, weight);
     });
 
-    savedIds.forEach((id) => {
+    normalizedSavedIds.forEach((id) => {
       const l = signals.find((s) => s._id === id);
       if (!l) return;
       bump(categoryScores, l.category, 5);

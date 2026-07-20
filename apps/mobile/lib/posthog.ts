@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { useSegments } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 
@@ -96,4 +97,15 @@ export function useExperiment<T extends readonly string[]>(
   }, [anonymousId, experiment, userId, variant]);
 
   return variant;
+}
+
+export function AnalyticsTracker({ userId }: { userId?: string | null }) {
+  const segments = useSegments();
+  const screen = segments.length ? `/${segments.join('/')}` : '/';
+
+  useEffect(() => {
+    capture('screen_view', { screen }, userId);
+  }, [screen, userId]);
+
+  return null;
 }

@@ -12,6 +12,7 @@ import { AppText } from '../../components/app-text';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
+import { runtime } from '../../lib/runtime';
 import { DealerBadge, SafetyBanner, TrustBadges, VerifiedSellerBadge } from '../../components/trust-safety';
 
 /** Row of filled/empty stars for a 0–5 rating. */
@@ -114,6 +115,7 @@ export default function SellerProfile() {
   };
 
   const openDealerVideo = () => {
+    if (!runtime.supportsReels) return;
     const showcase = profile?.dealerShowcase;
     if (!showcase?.videoUrl) return;
     router.push({
@@ -346,7 +348,7 @@ export default function SellerProfile() {
           )}
 
           {/* Their videos */}
-          {reels.length > 0 && (
+          {runtime.supportsReels && reels.length > 0 && (
             <View className="mt-6">
               <View className="mb-2 flex-row items-center justify-between px-4">
                 <AppText className="font-bold text-lg text-foreground">Videolari</AppText>

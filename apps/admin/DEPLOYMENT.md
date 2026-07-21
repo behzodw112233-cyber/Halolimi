@@ -25,7 +25,7 @@
 
 4. **Set Environment Variables**
    - Go to Vercel Dashboard → Your Project → Settings → Environment Variables
-   - Add: `NEXT_PUBLIC_CONVEX_URL` = `https://compassionate-labrador-165.convex.cloud`
+   - Add: `NEXT_PUBLIC_CONVEX_URL` = `https://brave-perch-452.convex.cloud`
 
 5. **Done!** Your admin panel will be live at: `https://your-project.vercel.app`
 
@@ -51,7 +51,7 @@
 
 4. **Set Environment Variables**
    - Go to Netlify Dashboard → Site settings → Environment variables
-   - Add: `NEXT_PUBLIC_CONVEX_URL` = `https://compassionate-labrador-165.convex.cloud`
+   - Add: `NEXT_PUBLIC_CONVEX_URL` = `https://brave-perch-452.convex.cloud`
 
 ---
 

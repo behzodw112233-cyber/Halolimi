@@ -7,6 +7,11 @@ import type { Id } from './_generated/dataModel';
 const TYPING_MS = 5_000; // typing indicator lifetime
 const ONLINE_MS = 60_000; // "online" if seen within a minute
 
+function displayName(name: string | undefined | null, fallback: string) {
+  const clean = name?.trim();
+  return clean && clean !== 'Foydalanuvchi' ? clean : fallback;
+}
+
 /** Deterministic key so opening the same buyer↔seller↔listing chat reuses one thread. */
 function threadKey(a: Id<'users'>, b: Id<'users'> | undefined, listingId?: Id<'listings'>) {
   const pair = b ? [a, b].sort().join('-') : a;
@@ -50,7 +55,30 @@ export const openThread = mutation({
       .query('threads')
       .withIndex('by_key', (q) => q.eq('key', key))
       .first();
-    if (existing) return existing._id;
+
+    const me = await ctx.db.get(meId);
+    const seller = sellerId ? await ctx.db.get(sellerId) : null;
+    const sellerName = displayName(seller?.name, listing?.sellerName ?? 'Sotuvchi');
+    const buyerName = displayName(me?.name, me?.phone ?? 'Xaridor');
+
+    if (existing) {
+      const members = await ctx.db
+        .query('threadMembers')
+        .withIndex('by_thread', (q) => q.eq('threadId', existing._id))
+        .collect();
+      await Promise.all(
+        members.map((member) => {
+          if (member.userId === meId && member.otherName !== sellerName) {
+            return ctx.db.patch(member._id, { otherId: sellerId, otherName: sellerName });
+          }
+          if (sellerId && member.userId === sellerId && member.otherName !== buyerName) {
+            return ctx.db.patch(member._id, { otherId: meId, otherName: buyerName });
+          }
+          return Promise.resolve();
+        })
+      );
+      return existing._id;
+    }
 
     const threadId = await ctx.db.insert('threads', {
       key,
@@ -60,14 +88,12 @@ export const openThread = mutation({
       lastAt: Date.now(),
     });
 
-    const me = await ctx.db.get(meId);
-    const seller = sellerId ? await ctx.db.get(sellerId) : null;
     // My view: counterpart is the seller.
     await ctx.db.insert('threadMembers', {
       threadId,
       userId: meId,
       otherId: sellerId,
-      otherName: seller?.name ?? listing?.sellerName ?? 'Sotuvchi',
+      otherName: sellerName,
       unread: 0,
       lastReadAt: Date.now(),
     });
@@ -77,9 +103,17 @@ export const openThread = mutation({
         threadId,
         userId: sellerId,
         otherId: meId,
-        otherName: me?.name ?? 'Xaridor',
+        otherName: buyerName,
         unread: 0,
         lastReadAt: 0,
+      });
+      await createForUser(ctx, {
+        userId: sellerId,
+        icon: 'chatbubble-outline',
+        title: 'Xaridor chat ochdi',
+        body: `${me?.name ?? 'Xaridor'} ${listing ? `"${listing.title}" bo‘yicha ` : ''}siz bilan yozishmoqchi.`,
+        targetType: 'chat',
+        targetId: threadId,
       });
     }
     return threadId;
@@ -100,9 +134,11 @@ export const myThreads = query({
         const thread = await ctx.db.get(m.threadId);
         const other = m.otherId ? await ctx.db.get(m.otherId) : null;
         const online = !!other?.lastSeen && now - other.lastSeen < ONLINE_MS;
+        const listing = thread?.listingId ? await ctx.db.get(thread.listingId) : null;
+        const fallback = listing && listing.ownerId === m.otherId ? listing.sellerName : 'Sotuvchi';
         return {
           threadId: m.threadId,
-          otherName: m.otherName,
+          otherName: displayName(other?.name, displayName(m.otherName, fallback)),
           unread: m.unread,
           lastText: thread?.lastText ?? '',
           lastAt: thread?.lastAt ?? 0,
@@ -165,13 +201,17 @@ export const threadInfo = query({
       .query('threadMembers')
       .withIndex('by_thread', (q) => q.eq('threadId', tid))
       .collect();
+    const mine = userId ? all.find((m) => m.userId === userId) ?? null : null;
     const other = all.find((m) => m.userId !== userId) ?? null;
-    const otherUser = other?.userId ? await ctx.db.get(other.userId) : null;
+    const otherId = mine?.otherId ?? other?.userId ?? null;
+    const otherUser = otherId ? await ctx.db.get(otherId) : null;
+    const listing = thread.listingId ? await ctx.db.get(thread.listingId) : null;
+    const fallbackName = listing?.ownerId === otherId ? listing.sellerName : mine?.otherName ?? 'Sotuvchi';
     const now = Date.now();
     return {
       title: thread.title,
-      otherId: other?.userId ?? null,
-      otherName: other?.otherName ?? 'Sotuvchi',
+      otherId,
+      otherName: displayName(otherUser?.name, displayName(mine?.otherName, fallbackName)),
       otherOnline: !!otherUser?.lastSeen && now - otherUser.lastSeen < ONLINE_MS,
       otherTyping: !!other?.typingUntil && other.typingUntil > now,
       otherLastReadAt: other?.lastReadAt ?? 0,

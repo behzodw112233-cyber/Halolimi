@@ -8,6 +8,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -224,6 +225,7 @@ export default function Create() {
 
   return (
     <View className="flex-1 bg-background">
+      <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <SafeAreaView className="flex-1" edges={['top', 'bottom']}>
         {/* Header */}
         <View className="h-12 flex-row items-center justify-between px-4">
@@ -240,7 +242,7 @@ export default function Create() {
           <View className="h-full rounded-full" style={{ width: `${((step + 1) / STEP_COUNT) * 100}%`, backgroundColor: BRAND_BLUE }} />
         </View>
 
-        <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingTop: 12 }}>
+        <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20, paddingTop: 12, paddingBottom: 44 }}>
           {/* 0 — Breed */}
           {step === 0 && (
             <View>
@@ -476,6 +478,7 @@ export default function Create() {
           )}
         </ScrollView>
       </SafeAreaView>
+      </KeyboardAvoidingView>
 
       <OtpSheet open={otpOpen} phone={phone} onClose={() => setOtpOpen(false)} onVerified={publish} />
     </View>

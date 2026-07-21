@@ -28,6 +28,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
+      "softwareKeyboardLayoutMode": "resize",
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.CAMERA",
@@ -93,7 +94,12 @@
         {
           "microphonePermission": "Halolmi ovozli xabar yozish uchun mikrofondan foydalanadi."
         }
-      ]
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {}
+      ],
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true,

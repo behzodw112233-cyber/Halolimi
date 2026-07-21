@@ -3,7 +3,7 @@ import { paginationOptsValidator } from 'convex/server';
 import type { Doc } from './_generated/dataModel';
 import { internal } from './_generated/api';
 import { createForUser } from './notifications';
-import { mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
+import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { listingStatus, listingTier } from './schema';
 import { computeSellerTrust } from './trust';
 
@@ -443,6 +443,84 @@ export const search = query({
   },
 });
 
+export const botSearch = query({
+  args: {
+    category: v.optional(v.string()),
+    city: v.optional(v.string()),
+    priceMin: v.optional(v.number()),
+    priceMax: v.optional(v.number()),
+    hasPhotos: v.optional(v.boolean()),
+    verifiedOnly: v.optional(v.boolean()),
+    nearLat: v.optional(v.number()),
+    nearLng: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const rows = args.category
+      ? await ctx.db
+          .query('listings')
+          .withIndex('by_status_category', (q) =>
+            q.eq('status', 'active').eq('category', args.category!)
+          )
+          .collect()
+      : await ctx.db
+          .query('listings')
+          .withIndex('by_status', (q) => q.eq('status', 'active'))
+          .collect();
+    const near =
+      args.nearLat !== undefined && args.nearLng !== undefined
+        ? { lat: args.nearLat, lng: args.nearLng }
+        : null;
+
+    const hydrated = await Promise.all(
+      rows.map(async (l) => {
+        const seller = l.ownerId ? await ctx.db.get(l.ownerId) : null;
+        const reports = l.ownerId
+          ? await ctx.db
+              .query('reports')
+              .withIndex('by_seller', (q) => q.eq('sellerId', l.ownerId))
+              .collect()
+          : [];
+        const trust = seller ? computeSellerTrust(seller, { reportCount: reports.length }) : null;
+        const distanceKm =
+          near && l.lat !== undefined && l.lng !== undefined
+            ? haversineKm(near, { lat: l.lat, lng: l.lng })
+            : null;
+        return { l, trust, distanceKm };
+      })
+    );
+
+    const filtered = hydrated.filter(({ l, trust }) => {
+      if (args.city && normalized(l.city) !== normalized(args.city)) return false;
+      if (args.hasPhotos && !l.photos?.length) return false;
+      if (args.verifiedOnly && !trust?.verified) return false;
+      const price = numberFromText(l.price);
+      if (args.priceMin !== undefined && (price === null || price < args.priceMin)) return false;
+      if (args.priceMax !== undefined && (price === null || price > args.priceMax)) return false;
+      return true;
+    });
+
+    const take = Math.max(1, Math.min(args.limit ?? 20, 40));
+    const sorted = filtered
+      .sort((a, b) => {
+        if (near) {
+          const da = a.distanceKm ?? Infinity;
+          const db = b.distanceKm ?? Infinity;
+          if (da !== db) return da - db;
+        }
+        return b.l.createdAt - a.l.createdAt;
+      })
+      .slice(0, take);
+
+    return Promise.all(
+      sorted.map(async ({ l, distanceKm }) => ({
+        ...(await withPreviewUrl(ctx, l)),
+        distanceKm: distanceKm === null ? null : Math.round(distanceKm),
+      }))
+    );
+  },
+});
+
 export const get = query({
   args: { id: v.id('listings'), now: v.optional(v.number()) },
   handler: async (ctx, { id, now: nowArg }) => {
@@ -559,7 +637,18 @@ export const incrementViews = mutation({
   handler: async (ctx, { id }) => {
     const l = await ctx.db.get(id);
     if (!l) return;
-    await ctx.db.patch(id, { views: (l.views ?? 0) + 1 });
+    const views = (l.views ?? 0) + 1;
+    await ctx.db.patch(id, { views });
+    if (l.ownerId && [10, 25, 50, 100, 250, 500, 1000].includes(views)) {
+      await createForUser(ctx, {
+        userId: l.ownerId,
+        icon: 'eye-outline',
+        title: `${views} ta ko‘rish`,
+        body: `"${l.title}" eʼloningiz ${views} marta ko‘rildi.`,
+        targetType: 'listing',
+        targetId: id,
+      });
+    }
   },
 });
 
@@ -612,14 +701,20 @@ export const related = query({
 
 export const recommendations = query({
   args: {
-    recentIds: v.optional(v.array(v.id('listings'))),
-    savedIds: v.optional(v.array(v.id('listings'))),
+    recentIds: v.optional(v.array(v.string())),
+    savedIds: v.optional(v.array(v.string())),
     limit: v.optional(v.number()),
     now: v.optional(v.number()),
   },
   handler: async (ctx, { recentIds = [], savedIds = [], limit, now: nowArg }) => {
+    const normalizeListingIds = (ids: string[]) =>
+      ids
+        .map((id) => ctx.db.normalizeId('listings', id))
+        .filter((id): id is NonNullable<typeof id> => id !== null);
+    const cleanRecentIds = normalizeListingIds(recentIds);
+    const cleanSavedIds = normalizeListingIds(savedIds);
     const seen = new Set<string>();
-    const signalIds = [...recentIds, ...savedIds].filter((id) => {
+    const signalIds = [...cleanRecentIds, ...cleanSavedIds].filter((id) => {
       if (seen.has(id)) return false;
       seen.add(id);
       return true;
@@ -637,7 +732,7 @@ export const recommendations = query({
       map.set(key, (map.get(key) ?? 0) + amount);
     };
 
-    recentIds.forEach((id, i) => {
+    cleanRecentIds.forEach((id, i) => {
       const l = signals.find((s) => s._id === id);
       if (!l) return;
       const weight = Math.max(1, 6 - i);
@@ -645,7 +740,7 @@ export const recommendations = query({
       bump(cityScores, l.city, weight);
     });
 
-    savedIds.forEach((id) => {
+    cleanSavedIds.forEach((id) => {
       const l = signals.find((s) => s._id === id);
       if (!l) return;
       bump(categoryScores, l.category, 5);
@@ -775,7 +870,25 @@ export const promote = mutation({
   handler: async (ctx, { id, tier }) => {
     const settings = await ctx.db.query('settings').first();
     const days = settings?.feedBoostDays ?? 28;
-    await ctx.db.patch(id, { tier, boostedUntil: Date.now() + days * DAY_MS });
+    const boostedUntil = Date.now() + days * DAY_MS;
+    await ctx.db.patch(id, { tier, boostedUntil });
+    await ctx.scheduler.runAt(boostedUntil, internal.listings.notifyPromotionExpired, { id });
+  },
+});
+
+export const notifyPromotionExpired = internalMutation({
+  args: { id: v.id('listings') },
+  handler: async (ctx, { id }) => {
+    const l = await ctx.db.get(id);
+    if (!l?.ownerId || !l.boostedUntil || l.boostedUntil > Date.now()) return;
+    await createForUser(ctx, {
+      userId: l.ownerId,
+      icon: 'flash-off-outline',
+      title: 'Reklama muddati tugadi',
+      body: `"${l.title}" eʼloningizning ko‘tarish muddati tugadi.`,
+      targetType: 'listing',
+      targetId: id,
+    });
   },
 });
 

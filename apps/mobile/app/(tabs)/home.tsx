@@ -8,8 +8,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, type Href } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, Easing, FlatList, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Animated, Easing, FlatList, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../../components/app-text';
 import { ListingCard } from '../../components/listing-card';
@@ -31,6 +31,7 @@ import {
 } from '../../lib/optional-native';
 import { capture, useExperiment } from '../../lib/posthog';
 import { useRecentlyViewed } from '../../lib/recently-viewed';
+import { runtime } from '../../lib/runtime';
 import { useSaved } from '../../lib/saved';
 
 /** Each "Tezroq toping" promo → the search filter it opens. */
@@ -249,6 +250,15 @@ const homeStyles = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 4,
   },
+  categoryTile: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderColor: 'rgba(226,232,240,0.72)',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.025,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
+  },
 });
 
 function VideoBozorMedia({ reel }: { reel: ReelPreview | null }) {
@@ -462,6 +472,7 @@ function DealerAd({ d }: { d: DealerAdData }) {
 
 export default function Home() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const { userId } = useAuth();
   const homeVariant = useExperiment('home_section', HOME_VARIANTS, userId);
   const isGlassHome = homeVariant === 'kabinet_glass';
@@ -524,16 +535,24 @@ export default function Home() {
   const aiCompare = aiMatches.slice(0, 3);
   const aiSaved = !!aiText.trim() && savedAiSearches.some((s) => s.text.toLowerCase() === aiText.trim().toLowerCase());
   const homeCategories = categories.slice(0, 5);
+  const compactAiComposer = width < 390;
   const { hasUnread } = useNotifications();
   const { isSaved, toggleSave, savedIds } = useSaved();
   const recentIds = useRecentlyViewed();
-  const hasRecommendationSignals = recentIds.length > 0 || savedIds.length > 0;
+  const safeRecentIds = useMemo(() => {
+    const knownListingIds = new Set<string>([
+      ...listings.map((l) => String(l._id)),
+      ...savedIds.map((id) => String(id)),
+    ]);
+    return recentIds.filter((id) => knownListingIds.has(String(id)));
+  }, [listings, recentIds, savedIds]);
+  const hasRecommendationSignals = safeRecentIds.length > 0 || savedIds.length > 0;
   const recommendations =
     useQuery(
       api.listings.recommendations,
       hasRecommendationSignals
         ? {
-            recentIds: recentIds as Id<'listings'>[],
+            recentIds: safeRecentIds as Id<'listings'>[],
             savedIds,
             limit: 8,
             now: feedNow,
@@ -545,10 +564,11 @@ export default function Home() {
     if (feedStatus === 'CanLoadMore') loadMore(12);
   };
 
-  const onRefresh = () => {
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
     setFeedNow(Date.now());
-  };
+    setTimeout(() => setRefreshing(false), 650);
+  }, []);
 
   const runAiSearch = async (textArg = aiText) => {
     const text = textArg.trim();
@@ -642,12 +662,6 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (refreshing && feedStatus !== 'LoadingFirstPage') {
-      setRefreshing(false);
-    }
-  }, [feedStatus, refreshing]);
-
-  useEffect(() => {
     readSavedAiSearches().then(setSavedAiSearches).catch(() => {});
   }, []);
 
@@ -699,6 +713,8 @@ export default function Home() {
           keyExtractor={(row) => (row.kind === 'listing' ? row.listing._id : row.k)}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 24 }}
+          bounces
+          alwaysBounceVertical
           onEndReached={loadMoreListings}
           onEndReachedThreshold={0.7}
           refreshControl={
@@ -708,6 +724,7 @@ export default function Home() {
               tintColor={BRAND_BLUE}
               colors={[BRAND_BLUE]}
               progressBackgroundColor="#fff"
+              progressViewOffset={8}
             />
           }
           // Smoother scrolling: detach off-screen rows and render in smaller batches.
@@ -766,14 +783,21 @@ export default function Home() {
                       end={{ x: 1, y: 1 }}
                       style={{ position: 'absolute', inset: 0 }}
                     />
-                    <View className="flex-row items-center px-3 py-3">
+                    <View className="flex-row items-start px-3 py-3">
                       <LinearGradient
                         colors={['#EAF2FF', '#FFFFFF']}
-                        style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}
+                        style={{
+                          width: compactAiComposer ? 34 : 38,
+                          height: compactAiComposer ? 34 : 38,
+                          borderRadius: compactAiComposer ? 17 : 19,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginTop: 1,
+                        }}
                       >
-                        <Ionicons name="sparkles" size={18} color={BRAND_BLUE} />
+                        <Ionicons name="sparkles" size={compactAiComposer ? 16 : 18} color={BRAND_BLUE} />
                       </LinearGradient>
-                      <View className="ml-3 flex-1" style={{ minWidth: 0 }}>
+                      <View className="flex-1" style={{ minWidth: 0, marginLeft: compactAiComposer ? 9 : 12 }}>
                         <TextInput
                           value={aiText}
                           onChangeText={setAiText}
@@ -782,21 +806,36 @@ export default function Home() {
                           returnKeyType="search"
                           placeholder="Vaziyatingizni yozing..."
                           placeholderTextColor="#94A3B8"
-                          className="min-h-10 py-1 text-[15px] text-foreground"
-                          style={{ fontFamily: 'Inter-SemiBold', lineHeight: 21, paddingRight: 6 }}
+                          className="min-h-9 py-1 text-[15px] text-foreground"
+                          style={{
+                            fontFamily: 'Inter-SemiBold',
+                            lineHeight: 21,
+                            maxHeight: aiOpen ? 78 : 40,
+                            paddingRight: 4,
+                            textAlignVertical: 'top',
+                          }}
                           multiline={aiOpen}
                         />
                       </View>
                       <View
-                        className="ml-2 flex-row items-center rounded-full px-1 py-1"
+                        className="flex-row items-center rounded-full px-1 py-1"
                         style={{
+                          marginLeft: compactAiComposer ? 6 : 8,
                           backgroundColor: 'rgba(255,255,255,0.58)',
                           borderWidth: 1,
                           borderColor: 'rgba(255,255,255,0.85)',
                         }}
                       >
                         {aiText || aiAdvice ? (
-                          <Pressable onPress={resetAi} hitSlop={8} className="h-8 w-8 items-center justify-center rounded-full active:opacity-75">
+                          <Pressable
+                            onPress={resetAi}
+                            hitSlop={8}
+                            className="items-center justify-center rounded-full active:opacity-75"
+                            style={{
+                              width: compactAiComposer ? 30 : 32,
+                              height: compactAiComposer ? 30 : 32,
+                            }}
+                          >
                             <Ionicons name="close" size={16} color="#64748B" />
                           </Pressable>
                         ) : null}
@@ -804,8 +843,12 @@ export default function Home() {
                           onPress={recorderState.isRecording ? stopVoice : startVoice}
                           disabled={voiceLoading || aiLoading}
                           hitSlop={8}
-                          className="h-8 w-8 items-center justify-center rounded-full active:opacity-75"
-                          style={{ backgroundColor: recorderState.isRecording ? '#EF4444' : 'rgba(10,108,255,0.10)' }}
+                          className="items-center justify-center rounded-full active:opacity-75"
+                          style={{
+                            width: compactAiComposer ? 30 : 32,
+                            height: compactAiComposer ? 30 : 32,
+                            backgroundColor: recorderState.isRecording ? '#EF4444' : 'rgba(10,108,255,0.10)',
+                          }}
                         >
                           <Ionicons
                             name={voiceLoading ? 'hourglass-outline' : recorderState.isRecording ? 'stop' : 'mic-outline'}
@@ -816,8 +859,10 @@ export default function Home() {
                         <Pressable
                           onPress={() => runAiSearch()}
                           disabled={aiLoading || !aiText.trim()}
-                          className="ml-1 h-8 w-8 items-center justify-center rounded-full active:opacity-80"
+                          className="ml-1 items-center justify-center rounded-full active:opacity-80"
                           style={{
+                            width: compactAiComposer ? 30 : 32,
+                            height: compactAiComposer ? 30 : 32,
                             backgroundColor: aiText.trim() ? BRAND_BLUE : 'rgba(148,163,184,0.18)',
                             shadowColor: BRAND_BLUE,
                             shadowOpacity: aiText.trim() ? 0.2 : 0,
@@ -934,17 +979,21 @@ export default function Home() {
                                   runAiSearch(sample.text);
                                 }}
                                 className="flex-row items-center rounded-full bg-white/80 px-3 py-2 active:opacity-80"
+                                style={{ maxWidth: compactAiComposer ? '100%' : '48%' }}
                               >
                                 <Ionicons name={sample.icon as keyof typeof Ionicons.glyphMap} size={14} color={BRAND_BLUE} />
-                                <AppText className="ml-1.5 text-[13px] font-semibold text-foreground">{sample.text}</AppText>
+                                <AppText className="ml-1.5 text-[13px] font-semibold text-foreground" numberOfLines={1}>
+                                  {sample.text}
+                                </AppText>
                               </Pressable>
                             ))}
                             <Pressable
                               onPress={recorderState.isRecording ? stopVoice : startVoice}
                               className="flex-row items-center rounded-full bg-blue-50/90 px-3 py-2 active:opacity-80"
+                              style={{ maxWidth: compactAiComposer ? '100%' : '48%' }}
                             >
                               <Ionicons name="mic-outline" size={14} color={BRAND_BLUE} />
-                              <AppText className="ml-1.5 text-[13px] font-bold" style={{ color: BRAND_BLUE }}>
+                              <AppText className="ml-1.5 text-[13px] font-bold" style={{ color: BRAND_BLUE }} numberOfLines={1}>
                                 Ovoz bilan ayting
                               </AppText>
                             </Pressable>
@@ -956,6 +1005,7 @@ export default function Home() {
                                   runAiSearch(savedSearch.text);
                                 }}
                                 className="flex-row items-center rounded-full bg-white/70 px-3 py-2 active:opacity-80"
+                                style={{ maxWidth: compactAiComposer ? '100%' : '48%' }}
                               >
                                 <Ionicons name="bookmark" size={14} color="#64748B" />
                                 <AppText className="ml-1.5 text-[13px] font-semibold text-foreground" numberOfLines={1}>
@@ -1146,7 +1196,7 @@ export default function Home() {
               )}
 
               <View
-                className="mx-4 flex-row flex-wrap justify-between overflow-hidden rounded-[28px] border border-white/70 bg-white/55 p-3"
+                className="mx-4 flex-row flex-wrap justify-between overflow-hidden rounded-[28px] border border-[#E5ECF6] bg-white/75 p-3"
                 style={isGlassHome ? homeStyles.glassPanel : homeStyles.cleanCard}
               >
                 {isGlassHome ? <BlurView intensity={32} tint="light" style={StyleSheet.absoluteFill} /> : null}
@@ -1176,17 +1226,17 @@ export default function Home() {
                       capture('home_category_tap', { home_variant: homeVariant, category: c.slug }, userId);
                       router.push({ pathname: '/search', params: { category: c.slug } } as never);
                     }}
-                    style={{ width: '31.5%', height: isGlassHome ? 92 : 84 }}
-                    className="mb-2.5 overflow-hidden rounded-[22px] border border-white/60 bg-white/65 active:opacity-80"
+                    style={[homeStyles.categoryTile, { width: '31.5%', height: isGlassHome ? 92 : 84 }]}
+                    className="mb-2.5 overflow-hidden rounded-[22px] border active:opacity-80"
                   >
-                    <AppText className="px-2.5 pt-2 text-xs font-medium leading-4 text-foreground">
+                    <AppText className="px-2.5 pt-2.5 text-xs font-semibold leading-4 text-foreground" numberOfLines={2}>
                       {c.name}
                     </AppText>
                     {CATEGORY_IMAGES[c.slug] && (
                       <Image
                         source={CATEGORY_IMAGES[c.slug]}
                         contentFit="contain"
-                        style={{ position: 'absolute', right: 2, bottom: 2, width: '62%', height: '62%' }}
+                        style={{ position: 'absolute', right: 4, bottom: 4, width: '58%', height: '58%' }}
                       />
                     )}
                   </Pressable>
@@ -1251,7 +1301,7 @@ export default function Home() {
                 })}
               </ScrollView>
 
-              <VideoBozorCard reels={reels as ReelPreview[]} />
+              {runtime.supportsReels ? <VideoBozorCard reels={reels as ReelPreview[]} /> : null}
 
               <View className="mx-4 mt-6 overflow-hidden rounded-[26px] border border-white/70 bg-white/65 px-4 py-3" style={homeStyles.headerCard}>
                 <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />

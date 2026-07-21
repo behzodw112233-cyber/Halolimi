@@ -7,29 +7,48 @@ import {
   adsKeyboard,
   backToMenuKeyboard,
   breedsKeyboard,
+  cabinetKeyboard,
   categoriesKeyboard,
   citiesKeyboard,
+  filterCitiesKeyboard,
   languageKeyboard,
   listingKeyboard,
+  locationRequestKeyboard,
   mainMenuKeyboard,
+  pagedListKeyboard,
   phoneRequestKeyboard,
+  photoStepKeyboard,
+  previewKeyboard,
+  searchFiltersKeyboard,
 } from './keyboards.js';
 
 interface SellDraft {
-  step: 'category' | 'breed' | 'weight' | 'price' | 'city' | 'phone';
+  step: 'category' | 'breed' | 'weight' | 'photos' | 'price' | 'city' | 'phone' | 'preview';
   category?: string;
   breed?: string;
   weight?: string;
   price?: string;
   city?: string;
   phone?: string;
+  photoIds?: Id<'_storage'>[];
 }
 
 interface SessionData {
   lang: 'uz' | 'ru';
   saved: string[];
-  browse: { category?: string; index: number };
+  browse: {
+    category?: string;
+    index: number;
+    city?: string;
+    priceMin?: number;
+    priceMax?: number;
+    hasPhotos?: boolean;
+    verifiedOnly?: boolean;
+    nearLat?: number;
+    nearLng?: number;
+  };
   sell?: SellDraft;
+  awaiting?: 'price_filter';
   /** Pending app-login handshake token (set when opened via t.me/bot?start=<token>). */
   authToken?: string;
   /** Action to continue after the user shares their Telegram contact. */
@@ -37,6 +56,20 @@ interface SessionData {
 }
 
 type MyContext = Context & SessionFlavor<SessionData>;
+
+type BotListing = Listing & {
+  photoUrls?: string[];
+  distanceKm?: number | null;
+  sellerTrust?: {
+    verified?: boolean;
+    isDealer?: boolean;
+    rating?: number;
+    ratingCount?: number;
+    soldCount?: number;
+  } | null;
+};
+
+const PAGE_SIZE = 5;
 
 export function createBot(token: string) {
   const bot = new Bot<MyContext>(token);
@@ -48,8 +81,52 @@ export function createBot(token: string) {
   );
 
   // ---------- helpers ----------
-  const listingsFor = (category: string) =>
-    convex.query(api.listings.listActive, { category });
+  const listingsFor = (filters: SessionData['browse']) =>
+    convex.query(api.listings.botSearch, {
+      category: filters.category,
+      city: filters.city,
+      priceMin: filters.priceMin,
+      priceMax: filters.priceMax,
+      hasPhotos: filters.hasPhotos,
+      verifiedOnly: filters.verifiedOnly,
+      nearLat: filters.nearLat,
+      nearLng: filters.nearLng,
+      limit: 30,
+    });
+
+  const appBaseUrl = process.env.HALOLMIA_APP_URL || process.env.EXPO_PUBLIC_APP_URL;
+
+  const appUrlFor = (path: string) =>
+    appBaseUrl ? `${appBaseUrl.replace(/\/$/, '')}${path}` : `halolmia://${path.replace(/^\//, '')}`;
+
+  const listingUrl = (id: string) => appUrlFor(`/listing/${id}`);
+
+  const formatMoney = (raw: string) => {
+    const trimmed = raw.trim();
+    const digits = trimmed.replace(/[^\d]/g, '');
+    if (!digits) return trimmed || '—';
+    const suffix = /usd|\$|y\.?e/i.test(trimmed) ? ' y.e.' : " so'm";
+    return `${Number(digits).toLocaleString('ru-RU')}${suffix}`;
+  };
+
+  const formatPhone = (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    const last = digits.slice(-9);
+    return last.length === 9
+      ? `+998 ${last.slice(0, 2)} ${last.slice(2, 5)} ${last.slice(5, 7)} ${last.slice(7)}`
+      : raw.trim();
+  };
+
+  const trustLine = (l: BotListing) => {
+    const t = l.sellerTrust;
+    const bits = [
+      t?.verified ? '🛡 Tasdiqlangan' : null,
+      t?.isDealer ? '🏪 Rasmiy diler' : null,
+      t?.ratingCount ? `⭐ ${t.rating?.toFixed(1)} (${t.ratingCount})` : null,
+      t?.soldCount ? `✅ ${t.soldCount} sotilgan` : null,
+    ].filter(Boolean);
+    return bits.length ? `\n${bits.join(' · ')}` : '';
+  };
 
   const telegramId = (ctx: MyContext) => (ctx.from?.id ? String(ctx.from.id) : null);
 
@@ -68,9 +145,8 @@ export function createBot(token: string) {
   }
 
   async function currentListing(ctx: MyContext) {
-    const { category, index } = ctx.session.browse;
-    if (!category) return null;
-    const list = await listingsFor(category);
+    const { index } = ctx.session.browse;
+    const list = await listingsFor(ctx.session.browse);
     return list[index] ?? null;
   }
 
@@ -98,7 +174,7 @@ export function createBot(token: string) {
     });
   }
 
-  async function listingCaption(l: Listing) {
+  async function listingCaption(l: BotListing) {
     const cat = await categoryBySlug(l.category);
     const specs = l.specs.map((s) => `• ${s.label}: <b>${s.value}</b>`).join('\n');
     return (
@@ -108,25 +184,69 @@ export function createBot(token: string) {
     );
   }
 
+  async function enhancedListingCaption(l: BotListing) {
+    const cat = await categoryBySlug(l.category);
+    const specs = l.specs.map((s) => `• ${s.label}: <b>${s.value}</b>`).join('\n');
+    return (
+      `${cat?.emoji ?? '🐾'} <b>${l.title}</b>\n\n` +
+      `💰 <b>${l.price}</b>\n📍 ${l.city}\n\n` +
+      `${specs}${trustLine(l)}\n\n📝 ${l.desc || '—'}\n\n` +
+      `📱 <code>halolmia://listing/${l._id}</code>`
+    );
+  }
+
+  async function uploadTelegramPhoto(fileId: string) {
+    const file = await bot.api.getFile(fileId);
+    if (!file.file_path) return null;
+    const fileUrl = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
+    const source = await fetch(fileUrl);
+    if (!source.ok) return null;
+    const uploadUrl = await convex.mutation(api.files.generateUploadUrl, {});
+    const uploaded = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/jpeg' },
+      body: await source.arrayBuffer(),
+    });
+    if (!uploaded.ok) return null;
+    const json = (await uploaded.json()) as { storageId?: string };
+    return (json.storageId ?? null) as Id<'_storage'> | null;
+  }
+
+  async function showSellPreview(ctx: MyContext) {
+    const d = ctx.session.sell;
+    if (!d) return;
+    const cat = await categoryBySlug(d.category ?? '');
+    d.step = 'preview';
+    const text =
+      `👀 <b>Eʼlon preview</b>\n\n` +
+      `${cat?.emoji ?? '🐾'} <b>${cat?.name ?? 'Hayvon'} · ${d.breed ?? '—'}</b>\n` +
+      `⚖️ Vazn: <b>${d.weight ?? '—'} kg</b>\n` +
+      `💰 Narx: <b>${d.price ?? '—'}</b>\n` +
+      `📍 Manzil: <b>${d.city ?? '—'}</b>\n` +
+      `📞 Telefon: <b>${d.phone ?? '—'}</b>\n` +
+      `🖼 Rasmlar: <b>${d.photoIds?.length ?? 0} ta</b>\n\n` +
+      `Hammasi joyidami bro?`;
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: previewKeyboard() });
+  }
+
   const photoFor = (categorySlug: string) =>
     fileURLToPath(new URL(`../assets/${categorySlug}.jpg`, import.meta.url));
 
   async function renderListing(ctx: MyContext, mode: 'new' | 'edit') {
-    const { category, index } = ctx.session.browse;
-    if (!category) return;
-    const list = await listingsFor(category);
+    const { index } = ctx.session.browse;
+    const list = await listingsFor(ctx.session.browse);
     if (list.length === 0) {
       await ctx.reply('Bu kategoriyada hozircha eʼlon yoʻq.', { reply_markup: backToMenuKeyboard() });
       return;
     }
     const i = Math.max(0, Math.min(index, list.length - 1));
     ctx.session.browse.index = i;
-    const l = list[i];
+    const l = list[i] as BotListing;
     const profile = await linkedProfile(ctx);
     const saved = profile ? await isSavedBy(profile.userId, l._id) : false;
-    const kb = listingKeyboard(i, list.length, saved);
-    const photo = new InputFile(photoFor(l.category));
-    const caption = await listingCaption(l);
+    const kb = listingKeyboard(i, list.length, saved, listingUrl(l._id));
+    const photo = l.photoUrls?.[0] ?? new InputFile(photoFor(l.category));
+    const caption = await enhancedListingCaption(l);
 
     if (mode === 'edit') {
       try {
@@ -140,6 +260,23 @@ export function createBot(token: string) {
       }
     }
     await ctx.replyWithPhoto(photo, { caption, parse_mode: 'HTML', reply_markup: kb });
+  }
+
+  async function renderFilters(ctx: MyContext) {
+    const f = ctx.session.browse;
+    const summary = [
+      f.category ? `Kategoriya: ${f.category}` : null,
+      f.city ? `Shahar: ${f.city}` : null,
+      f.priceMin ? `Min: ${f.priceMin.toLocaleString('ru-RU')}` : null,
+      f.priceMax ? `Max: ${f.priceMax.toLocaleString('ru-RU')}` : null,
+      f.verifiedOnly ? 'Verified seller' : null,
+      f.hasPhotos ? 'Rasmi bor' : null,
+      f.nearLat !== undefined ? 'Yaqinimda' : null,
+    ].filter(Boolean);
+    await ctx.reply(
+      `🔎 <b>Qidirish filterlari</b>\n\n${summary.length ? summary.join('\n') : 'Hozircha filter yo‘q.'}`,
+      { parse_mode: 'HTML', reply_markup: searchFiltersKeyboard(f) }
+    );
   }
 
   // ---------- start / language ----------
@@ -194,6 +331,11 @@ export function createBot(token: string) {
   // ---------- browse ----------
   bot.callbackQuery('browse', async (ctx) => {
     await ctx.answerCallbackQuery();
+    await renderFilters(ctx);
+  });
+
+  bot.callbackQuery('browse_legacy_unused', async (ctx) => {
+    await ctx.answerCallbackQuery();
     const cats = await getCategories();
     const text = '🔍 <b>Kategoriyani tanlang:</b>';
     const opts = { parse_mode: 'HTML' as const, reply_markup: categoriesKeyboard(cats, 'cat') };
@@ -207,6 +349,89 @@ export function createBot(token: string) {
       }
       await ctx.reply(text, opts);
     }
+  });
+
+  bot.callbackQuery('filters', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await renderFilters(ctx);
+  });
+
+  bot.callbackQuery('filter_category', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const cats = await getCategories();
+    await ctx.reply('🐾 <b>Kategoriyani tanlang:</b>', {
+      parse_mode: 'HTML',
+      reply_markup: categoriesKeyboard(cats, 'fcat'),
+    });
+  });
+
+  bot.callbackQuery('filter_city', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.reply('📍 <b>Shaharni tanlang:</b>', {
+      parse_mode: 'HTML',
+      reply_markup: filterCitiesKeyboard(),
+    });
+  });
+
+  bot.callbackQuery('filter_price', async (ctx) => {
+    ctx.session.awaiting = 'price_filter';
+    await ctx.answerCallbackQuery();
+    await ctx.reply(
+      '💰 <b>Narx filteri</b>\n\nFormat: <code>min max</code>\nMasalan: <code>3000000 8000000</code>\nFaqat max uchun: <code>0 5000000</code>',
+      { parse_mode: 'HTML' }
+    );
+  });
+
+  bot.callbackQuery('toggle_verified', async (ctx) => {
+    ctx.session.browse.verifiedOnly = !ctx.session.browse.verifiedOnly;
+    await ctx.answerCallbackQuery();
+    await renderFilters(ctx);
+  });
+
+  bot.callbackQuery('toggle_photos', async (ctx) => {
+    ctx.session.browse.hasPhotos = !ctx.session.browse.hasPhotos;
+    await ctx.answerCallbackQuery();
+    await renderFilters(ctx);
+  });
+
+  bot.callbackQuery('filter_near', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.reply('📌 Yaqin atrofdagi eʼlonlar uchun joylashuvingizni yuboring:', {
+      reply_markup: locationRequestKeyboard(),
+    });
+  });
+
+  bot.callbackQuery('clear_filters', async (ctx) => {
+    ctx.session.browse = { index: 0 };
+    ctx.session.awaiting = undefined;
+    await ctx.answerCallbackQuery();
+    await renderFilters(ctx);
+  });
+
+  bot.callbackQuery('clear_city', async (ctx) => {
+    ctx.session.browse.city = undefined;
+    await ctx.answerCallbackQuery();
+    await renderFilters(ctx);
+  });
+
+  bot.callbackQuery('show_results', async (ctx) => {
+    ctx.session.browse.index = 0;
+    await ctx.answerCallbackQuery();
+    await renderListing(ctx, 'new');
+  });
+
+  bot.callbackQuery(/^fcat_(.+)$/, async (ctx) => {
+    ctx.session.browse.category = ctx.match[1];
+    ctx.session.browse.index = 0;
+    await ctx.answerCallbackQuery();
+    await renderFilters(ctx);
+  });
+
+  bot.callbackQuery(/^fcity_(\d+)$/, async (ctx) => {
+    ctx.session.browse.city = CITIES[Number(ctx.match[1])] ?? undefined;
+    ctx.session.browse.index = 0;
+    await ctx.answerCallbackQuery();
+    await renderFilters(ctx);
   });
 
   bot.callbackQuery(/^cat_(.+)$/, async (ctx) => {
@@ -241,7 +466,7 @@ export function createBot(token: string) {
     }
     const { category, index } = ctx.session.browse;
     if (!category) return ctx.answerCallbackQuery();
-    const list = await listingsFor(category);
+    const list = await listingsFor(ctx.session.browse);
     const l = list[index];
     if (!l) return ctx.answerCallbackQuery();
     const saved = await convex.mutation(api.saved.toggle, {
@@ -250,14 +475,14 @@ export function createBot(token: string) {
     });
     await ctx.answerCallbackQuery({ text: saved ? '❤️ Saqlandi' : 'Saqlanganlardan olib tashlandi' });
     await ctx.editMessageReplyMarkup({
-      reply_markup: listingKeyboard(index, list.length, saved),
+      reply_markup: listingKeyboard(index, list.length, saved, listingUrl(l._id)),
     });
   });
 
   bot.callbackQuery('contact', async (ctx) => {
     const { category, index } = ctx.session.browse;
     if (!category) return ctx.answerCallbackQuery();
-    const list = await listingsFor(category);
+    const list = await listingsFor(ctx.session.browse);
     const l = list[index];
     await ctx.answerCallbackQuery({
       text: l ? `📞 Sotuvchi: ${l.phone}` : 'Topilmadi',
@@ -265,8 +490,86 @@ export function createBot(token: string) {
     });
   });
 
-  // ---------- saved ----------
+  async function renderSavedPage(ctx: MyContext, page: number) {
+    const profile = await linkedProfile(ctx);
+    if (!profile) {
+      await requestLink(ctx, 'saved');
+      return;
+    }
+    const items = (await convex.query(api.saved.list, { userId: profile.userId })) as BotListing[];
+    if (items.length === 0) {
+      await ctx.reply('❤️ <b>Saqlangan eʼlonlar</b>\n\nHozircha bo‘sh. Eʼlonga ❤️ bosing.', {
+        parse_mode: 'HTML',
+        reply_markup: backToMenuKeyboard(),
+      });
+      return;
+    }
+    const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const chunk = items.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+    const text =
+      `❤️ <b>Saqlangan eʼlonlar</b> (${items.length} ta)\n\n` +
+      chunk
+        .map((l, i) => `${safePage * PAGE_SIZE + i + 1}. <b>${l.title}</b>\n   ${l.price} · ${l.city}\n   ${listingUrl(l._id)}`)
+        .join('\n\n');
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: pagedListKeyboard('saved', safePage, totalPages) });
+  }
+
+  async function renderMyListingsPage(ctx: MyContext, page: number) {
+    const profile = await linkedProfile(ctx);
+    if (!profile) {
+      await requestLink(ctx, 'kabinet');
+      return;
+    }
+    const items = (await convex.query(api.listings.byOwner, { ownerId: profile.userId })) as BotListing[];
+    if (items.length === 0) {
+      await ctx.reply('📋 <b>Eʼlonlarim</b>\n\nHali eʼlon yo‘q. Sotish tugmasidan boshlang.', {
+        parse_mode: 'HTML',
+        reply_markup: backToMenuKeyboard(),
+      });
+      return;
+    }
+    const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const chunk = items.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+    const statusLabel: Record<string, string> = {
+      active: '✅ faol',
+      pending: '⏳ tekshiruvda',
+      rejected: '❌ rad etilgan',
+      sold: '🤝 sotilgan',
+    };
+    const text =
+      `📋 <b>Eʼlonlarim</b> (${items.length} ta)\n\n` +
+      chunk
+        .map((l, i) => `${safePage * PAGE_SIZE + i + 1}. <b>${l.title}</b>\n   ${statusLabel[l.status] ?? l.status} · ${l.price} · ${l.city}\n   ${listingUrl(l._id)}`)
+        .join('\n\n');
+    await ctx.reply(text, { parse_mode: 'HTML', reply_markup: pagedListKeyboard('mylistings', safePage, totalPages) });
+  }
+
   bot.callbackQuery('saved', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await renderSavedPage(ctx, 0);
+  });
+
+  bot.callbackQuery(/^saved_(\d+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await renderSavedPage(ctx, Number(ctx.match[1]));
+  });
+
+  bot.callbackQuery(/^mylistings_(\d+)$/, async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await renderMyListingsPage(ctx, Number(ctx.match[1]));
+  });
+
+  bot.callbackQuery('topup', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.reply(`💳 Hisobni toʻldirish uchun ilovani oching:\n${appUrlFor('/profile')}`, {
+      reply_markup: backToMenuKeyboard(),
+    });
+  });
+
+  // ---------- saved ----------
+  bot.callbackQuery('saved_legacy_unused', async (ctx) => {
     await ctx.answerCallbackQuery();
     const profile = await linkedProfile(ctx);
     if (!profile) {
@@ -302,7 +605,7 @@ export function createBot(token: string) {
         `📋 Eʼlonlaringiz: ${profile.listingCount} ta\n` +
         `⏳ Tekshiruvda: ${profile.pendingListingCount} ta\n` +
         `💰 Hisob: ${(profile.balance ?? 0).toLocaleString('ru-RU')} soʻm`,
-      { parse_mode: 'HTML', reply_markup: mainMenuKeyboard() }
+      { parse_mode: 'HTML', reply_markup: cabinetKeyboard() }
     );
   });
 
@@ -382,6 +685,23 @@ export function createBot(token: string) {
     });
   });
 
+  bot.callbackQuery('skip_photos', async (ctx) => {
+    const draft = ctx.session.sell;
+    if (!draft) return ctx.answerCallbackQuery();
+    draft.step = 'price';
+    await ctx.answerCallbackQuery();
+    await ctx.reply('💰 <b>Narxni kiriting</b>\n\nMasalan: <code>12000000</code> yoki <code>500 usd</code>', {
+      parse_mode: 'HTML',
+    });
+  });
+
+  bot.callbackQuery('publish_listing', async (ctx) => {
+    const draft = ctx.session.sell;
+    if (!draft) return ctx.answerCallbackQuery();
+    await ctx.answerCallbackQuery();
+    await finishSell(ctx);
+  });
+
   async function finishSell(ctx: MyContext) {
     const d = ctx.session.sell!;
     const cat = await categoryBySlug(d.category ?? '');
@@ -391,7 +711,7 @@ export function createBot(token: string) {
       return;
     }
     ctx.session.sell = undefined;
-    await convex.mutation(api.listings.create, {
+    const listingId = await convex.mutation(api.listings.create, {
       title: `${cat?.name ?? 'Hayvon'} · ${d.breed ?? ''}`.trim(),
       price: d.price ?? '—',
       category: d.category ?? 'cattle',
@@ -404,6 +724,7 @@ export function createBot(token: string) {
       desc: '',
       sellerName: profile.name || ctx.from?.first_name || 'Sotuvchi',
       ownerId: profile.userId,
+      photos: d.photoIds?.length ? d.photoIds : undefined,
     });
     await ctx.reply(
       `🎉 <b>Eʼlon qabul qilindi!</b>\n\n` +
@@ -413,6 +734,47 @@ export function createBot(token: string) {
     );
     await ctx.reply('🏠 Asosiy menyu', { reply_markup: mainMenuKeyboard() });
   }
+
+  bot.on('message:location', async (ctx) => {
+    const loc = ctx.message.location;
+    ctx.session.browse.nearLat = loc.latitude;
+    ctx.session.browse.nearLng = loc.longitude;
+    ctx.session.browse.index = 0;
+    await ctx.reply('✅ Joylashuv olindi. Endi yaqin atrofdagi eʼlonlarni ko‘rsataman.', {
+      reply_markup: { remove_keyboard: true },
+    });
+    await renderListing(ctx, 'new');
+  });
+
+  bot.on('message:photo', async (ctx) => {
+    const draft = ctx.session.sell;
+    if (!draft || draft.step !== 'photos') {
+      await ctx.reply('Rasm qabul qilindi, lekin hozir sotish flowida emasmiz. Sotish tugmasidan boshlang 🙂');
+      return;
+    }
+    const photos = ctx.message.photo;
+    const best = photos[photos.length - 1];
+    if (!best) return;
+    try {
+      const storageId = await uploadTelegramPhoto(best.file_id);
+      if (!storageId) throw new Error('upload failed');
+      draft.photoIds = [...(draft.photoIds ?? []), storageId].slice(0, 5);
+      const count = draft.photoIds.length;
+      await ctx.reply(`✅ Rasm qo‘shildi (${count}/5).\n\nYana rasm yuboring yoki davom eting.`, {
+        reply_markup: photoStepKeyboard(),
+      });
+      if (count >= 5) {
+        draft.step = 'price';
+        await ctx.reply('💰 <b>Narxni kiriting</b>\n\nMasalan: <code>12000000</code> yoki <code>500 usd</code>', {
+          parse_mode: 'HTML',
+        });
+      }
+    } catch {
+      await ctx.reply('❌ Rasmni yuklay olmadim. Qayta urinib ko‘ring yoki rasmsiz davom eting.', {
+        reply_markup: photoStepKeyboard(),
+      });
+    }
+  });
 
   bot.on('message:contact', async (ctx) => {
     // Only accept the user's own Telegram contact — not someone else's shared card.
@@ -474,8 +836,8 @@ export function createBot(token: string) {
       );
 
       if (!action && draft?.step === 'phone') {
-        draft.phone = contact.phone_number;
-        await finishSell(ctx);
+        draft.phone = formatPhone(contact.phone_number);
+        await showSellPreview(ctx);
       } else if (action === 'save') {
         await toggleCurrentSaved(ctx, userId);
       } else if (action === 'sell') {
@@ -490,7 +852,7 @@ export function createBot(token: string) {
                 `📋 Eʼlonlaringiz: ${profile.listingCount} ta\n` +
                 `💰 Hisob: ${(profile.balance ?? 0).toLocaleString('ru-RU')} soʻm`
             : 'Kabinetni ochib boʻlmadi.',
-          { parse_mode: 'HTML', reply_markup: mainMenuKeyboard() }
+          { parse_mode: 'HTML', reply_markup: cabinetKeyboard() }
         );
       } else if (action === 'saved') {
         await ctx.reply('❤️ Saqlangan eʼlonlarni ochish uchun menyudan “Saqlangan” ni bosing.', {
@@ -504,32 +866,63 @@ export function createBot(token: string) {
 
     const draft = ctx.session.sell;
     if (draft?.step === 'phone') {
-      draft.phone = contact.phone_number;
-      await finishSell(ctx);
+      draft.phone = formatPhone(contact.phone_number);
+      await showSellPreview(ctx);
     }
   });
 
   bot.on('message:text', async (ctx) => {
+    if (ctx.session.awaiting === 'price_filter') {
+      const nums = ctx.message.text
+        .match(/\d+/g)
+        ?.map((x) => Number(x))
+        .filter((x) => Number.isFinite(x)) ?? [];
+      const [minRaw, maxRaw] = nums;
+      ctx.session.browse.priceMin = minRaw && minRaw > 0 ? minRaw : undefined;
+      ctx.session.browse.priceMax = maxRaw && maxRaw > 0 ? maxRaw : undefined;
+      ctx.session.browse.index = 0;
+      ctx.session.awaiting = undefined;
+      await ctx.reply('✅ Narx filteri saqlandi.', { reply_markup: { remove_keyboard: true } });
+      await renderFilters(ctx);
+      return;
+    }
     const draft = ctx.session.sell;
     if (!draft) {
       await ctx.reply('Menyudan tanlang 👇', { reply_markup: mainMenuKeyboard() });
       return;
     }
     const text = ctx.message.text.trim();
+    if (draft.step === 'photos') {
+      await ctx.reply('Rasm yuboring yoki “Rasmsiz davom etish” tugmasini bosing 🙂', {
+        reply_markup: photoStepKeyboard(),
+      });
+      return;
+    }
+    if (draft.step === 'preview') {
+      await ctx.reply('Preview tayyor. Pastdagi tugmalardan birini tanlang 👇', {
+        reply_markup: previewKeyboard(),
+      });
+      return;
+    }
     if (draft.step === 'weight') {
       draft.weight = text.replace(/[^0-9]/g, '') || '—';
-      draft.step = 'price';
-      await ctx.reply('💰 <b>Narxni kiriting (soʻm):</b>', { parse_mode: 'HTML' });
+      draft.step = 'photos';
+      draft.photoIds = [];
+      await ctx.reply('🖼 <b>Rasm yuboring</b>\n\n1-5 ta foto tashlang. Tayyor bo‘lsa yoki rasmsiz davom etsangiz pastdagi tugmani bosing.', {
+        parse_mode: 'HTML',
+        reply_markup: photoStepKeyboard(),
+      });
+      return;
     } else if (draft.step === 'price') {
-      draft.price = text;
+      draft.price = formatMoney(text);
       draft.step = 'city';
       await ctx.reply('📍 <b>Sotish manzilini tanlang:</b>', {
         parse_mode: 'HTML',
         reply_markup: citiesKeyboard(),
       });
     } else if (draft.step === 'phone') {
-      draft.phone = text;
-      await finishSell(ctx);
+      draft.phone = formatPhone(text);
+      await showSellPreview(ctx);
     }
   });
 

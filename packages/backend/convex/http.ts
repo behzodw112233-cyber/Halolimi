@@ -6,34 +6,6 @@ const http = httpRouter();
 
 declare const process: { env: Record<string, string | undefined> };
 
-type InpayWebhookBody = {
-  order_id?: string;
-  amount?: number | string;
-  status?: string;
-  signature?: string;
-};
-
-type PaytechWebhookBody = {
-  order_id?: string | number;
-  id?: string | number;
-  amount?: number | string;
-  status?: string;
-  payment_method?: string;
-  transaction_id?: number | string;
-  signature?: string;
-};
-
-const asText = (value: unknown) =>
-  value === undefined || value === null ? '' : String(value);
-
-async function sha256Hex(input: string) {
-  const bytes = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 function safeEqual(a: string, b: string) {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -43,107 +15,83 @@ function safeEqual(a: string, b: string) {
   return diff === 0;
 }
 
-async function verifyInpaySignature(body: InpayWebhookBody) {
-  const salt = process.env.INPAY_WEBHOOK_SALT;
-  if (!salt) return true;
-  const signature = asText(body.signature);
-  if (!signature) return false;
-  const expected = await sha256Hex(
-    `${asText(body.order_id)}${asText(body.amount)}${asText(body.status)}${salt}`
+async function hmacSha256Hex(secret: string, input: string) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
   );
-  return safeEqual(expected.toLowerCase(), signature.toLowerCase());
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(input));
+  return [...new Uint8Array(signature)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 }
 
-function normalizePaytechStatus(status?: string): 'success' | 'failed' | 'cancelled' | 'pending' | null {
-  const value = status?.toLowerCase();
-  if (value === 'success' || value === 'paid' || value === 'completed') return 'success';
-  if (value === 'failed' || value === 'error') return 'failed';
-  if (value === 'cancelled' || value === 'canceled') return 'cancelled';
-  if (value === 'pending' || value === 'created') return 'pending';
-  return null;
-}
-
-async function verifyPaytechSignature(body: PaytechWebhookBody) {
-  const secret = process.env.PAYTECH_CALLBACK_SECRET;
-  if (!secret) return false;
-  const orderId = asText(body.order_id ?? body.id);
-  const expected = await sha256Hex(
-    `${orderId}${asText(body.status)}${asText(body.amount)}${secret}`
-  );
-  return safeEqual(expected.toLowerCase(), asText(body.signature).toLowerCase());
+async function verifyStripeSignature(payload: string, header: string | null) {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret || !header) return false;
+  const parts = header.split(',');
+  const timestamp = parts.find((part) => part.startsWith('t='))?.slice(2);
+  const signatures = parts
+    .filter((part) => part.startsWith('v1='))
+    .map((part) => part.slice(3));
+  if (!timestamp || signatures.length === 0) return false;
+  const age = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (!Number.isFinite(age) || age > 300) return false;
+  const expected = await hmacSha256Hex(secret, `${timestamp}.${payload}`);
+  return signatures.some((signature) => safeEqual(expected, signature));
 }
 
 http.route({
-  path: '/inpay/callback',
+  path: '/stripe/webhook',
   method: 'POST',
   handler: httpAction(async (ctx, request) => {
-    let body: InpayWebhookBody | null = null;
+    const payload = await request.text();
+    const valid = await verifyStripeSignature(payload, request.headers.get('stripe-signature'));
+    if (!valid) return Response.json({ ok: false, error: 'bad signature' }, { status: 403 });
+
+    let event: {
+      type?: string;
+      data?: { object?: {
+        id?: string;
+        payment_intent?: string;
+        amount_total?: number;
+        amount_received?: number;
+        payment_status?: string;
+        status?: string;
+      } };
+    };
     try {
-      body = (await request.json()) as InpayWebhookBody | null;
+      event = JSON.parse(payload) as typeof event;
     } catch {
       return Response.json({ ok: false, error: 'invalid json' }, { status: 400 });
     }
 
-    if (!body?.order_id) {
-      return Response.json({ ok: false, error: 'missing order_id' }, { status: 400 });
+    if (event.type !== 'checkout.session.completed' && event.type !== 'payment_intent.succeeded') {
+      return Response.json({ ok: true, ignored: true }, { status: 200 });
     }
 
+    const object = event.data?.object;
+    if (!object?.id) {
+      return Response.json({ ok: true, pending: true }, { status: 200 });
+    }
+    if (event.type === 'checkout.session.completed' && object.payment_status !== 'paid') {
+      return Response.json({ ok: true, pending: true }, { status: 200 });
+    }
+    if (event.type === 'payment_intent.succeeded' && object.status !== 'succeeded') {
+      return Response.json({ ok: true, pending: true }, { status: 200 });
+    }
     try {
-      const valid = await verifyInpaySignature(body);
-      if (!valid) {
-        return Response.json({ ok: false, error: 'bad signature' }, { status: 403 });
-      }
-
-      await ctx.runAction(internal.inpay.verifyAndSettle, {
-        orderId: body.order_id,
+      await ctx.runMutation(internal.jamgarma.settleStripe, {
+        sessionId: object.id,
+        paymentIntentId: object.payment_intent ?? object.id,
+        amountTotalMinor: object.amount_total ?? object.amount_received,
       });
       return Response.json({ ok: true }, { status: 200 });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'webhook failed';
-      return Response.json({ ok: false, error: message }, { status: 500 });
-    }
-  }),
-});
-
-http.route({
-  path: '/paytech/callback',
-  method: 'POST',
-  handler: httpAction(async (ctx, request) => {
-    let body: PaytechWebhookBody | null = null;
-    try {
-      body = (await request.json()) as PaytechWebhookBody | null;
-    } catch {
-      return Response.json({ ok: false, error: 'invalid json' }, { status: 400 });
-    }
-
-    const orderId = asText(body?.order_id ?? body?.id);
-    if (!body || !orderId) {
-      return Response.json({ ok: false, error: 'missing order_id' }, { status: 400 });
-    }
-
-    const status = normalizePaytechStatus(body.status);
-    if (!status) {
-      return Response.json({ ok: false, error: 'unknown status' }, { status: 400 });
-    }
-
-    try {
-      const valid = await verifyPaytechSignature(body);
-      if (!valid) {
-        return Response.json({ ok: false, error: 'bad signature' }, { status: 403 });
-      }
-
-      await ctx.runMutation(internal.inpay.settlePaytech, {
-        orderId,
-        status,
-        method: body.payment_method,
-        transactionId:
-          body.transaction_id === undefined || body.transaction_id === null
-            ? undefined
-            : Number(body.transaction_id),
-      });
-      return Response.json({ ok: true }, { status: 200 });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'webhook failed';
+      const message = error instanceof Error ? error.message : 'Stripe webhook failed';
       return Response.json({ ok: false, error: message }, { status: 500 });
     }
   }),

@@ -53,7 +53,7 @@ export default function Login() {
   );
 
   const digits = phone.replace(/\D/g, '');
-  const valid = digits.length >= 9;
+  const valid = digits.length >= 9 && name.trim().length >= 2;
 
   const submit = async () => {
     if (!valid || busy) return;

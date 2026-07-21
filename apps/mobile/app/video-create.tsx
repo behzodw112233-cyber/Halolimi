@@ -6,12 +6,14 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../components/app-text';
+import { NativeFeatureUnavailable } from '../components/native-feature-unavailable';
 import { BRAND_BLUE } from '../constants/theme';
 import { useAuth } from '../lib/auth';
 import { hasExpoVideo, useVideoPlayer, VideoView } from '../lib/optional-native';
+import { runtime } from '../lib/runtime';
 import { uploadToConvex } from '../lib/upload';
 
 type PickedVideo = {
@@ -19,6 +21,7 @@ type PickedVideo = {
   mimeType?: string;
   duration?: number;
   fileSize?: number;
+  file?: File;
 };
 
 const THUMBNAIL_MOMENTS = [1, 2, 4] as const;
@@ -47,6 +50,23 @@ function formatMb(bytes?: number) {
   return `${(bytes / 1024 / 1024).toFixed(bytes > 20 * 1024 * 1024 ? 0 : 1)} MB`;
 }
 
+async function appendVideoFile(form: FormData, video: PickedVideo) {
+  const name = videoFileName(video.uri);
+  const type = video.mimeType ?? 'video/mp4';
+  if (Platform.OS === 'web') {
+    if (video.file) {
+      form.append('file', video.file, name);
+      return;
+    }
+    const response = await fetch(video.uri);
+    if (!response.ok) throw new Error('Video faylini oqib bolmadi');
+    const blob = await response.blob();
+    form.append('file', blob, name);
+    return;
+  }
+  form.append('file', { uri: video.uri, name, type } as unknown as Blob);
+}
+
 export default function VideoCreate() {
   const router = useRouter();
   const { userId } = useAuth();
@@ -59,6 +79,7 @@ export default function VideoCreate() {
   const [category, setCategory] = useState('cattle');
   const [thumbnailSecond, setThumbnailSecond] = useState<(typeof THUMBNAIL_MOMENTS)[number]>(2);
   const [busy, setBusy] = useState(false);
+  const [publishStatus, setPublishStatus] = useState<string | null>(null);
 
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const createReel = useMutation(api.reels.create);
@@ -66,6 +87,15 @@ export default function VideoCreate() {
   const player = useVideoPlayer(video?.uri ?? '', (p) => {
     p.loop = true;
   });
+
+  if (!runtime.supportsVideoPosting) {
+    return (
+      <NativeFeatureUnavailable
+        title="Video eʼlon native appda"
+        body="Telegram ichida oddiy eʼlon joylash mumkin. Video olish va yuklash uchun Halolmia mobil ilovasidan foydalaning."
+      />
+    );
+  }
 
   const pickFromCamera = async () => {
     tap();
@@ -86,7 +116,13 @@ export default function VideoCreate() {
     });
     if (!res.canceled) {
       const asset = res.assets[0];
-      setVideo({ uri: asset.uri, mimeType: asset.mimeType, duration: asset.duration ?? undefined, fileSize: asset.fileSize ?? undefined });
+      setVideo({
+        uri: asset.uri,
+        mimeType: asset.mimeType,
+        duration: asset.duration ?? undefined,
+        fileSize: asset.fileSize ?? undefined,
+        file: Platform.OS === 'web' ? asset.file : undefined,
+      });
     }
   };
 
@@ -109,7 +145,13 @@ export default function VideoCreate() {
     });
     if (!res.canceled) {
       const asset = res.assets[0];
-      setVideo({ uri: asset.uri, mimeType: asset.mimeType, duration: asset.duration ?? undefined, fileSize: asset.fileSize ?? undefined });
+      setVideo({
+        uri: asset.uri,
+        mimeType: asset.mimeType,
+        duration: asset.duration ?? undefined,
+        fileSize: asset.fileSize ?? undefined,
+        file: Platform.OS === 'web' ? asset.file : undefined,
+      });
     }
   };
 
@@ -132,23 +174,25 @@ export default function VideoCreate() {
     };
 
     setBusy(true);
+    setPublishStatus('Video tayyorlanmoqda...');
     try {
       let reelId: Id<'reels'>;
       try {
+        setPublishStatus('Cloudflare tekshirilmoqda...');
         const direct = await createCloudflareUpload({ maxDurationSeconds: 60 });
+        if (!direct.ok) throw new Error(direct.error);
         const form = new FormData();
-        form.append('file', {
-          uri: video.uri,
-          name: videoFileName(video.uri),
-          type: video.mimeType ?? 'video/mp4',
-        } as unknown as Blob);
+        await appendVideoFile(form, video);
+        setPublishStatus('Cloudflare Streamga yuklanmoqda...');
         const cloudflareUpload = await fetch(direct.uploadUrl, {
           method: 'POST',
           body: form,
         });
         if (!cloudflareUpload.ok) {
-          throw new Error(`Cloudflare upload failed with ${cloudflareUpload.status}`);
+          const errorText = await cloudflareUpload.text().catch(() => '');
+          throw new Error(`Cloudflare upload failed with ${cloudflareUpload.status}${errorText ? `: ${errorText}` : ''}`);
         }
+        setPublishStatus("Video e'loni yaratilmoqda...");
         reelId = await createReel({
           ...baseReel,
           hlsUrl: direct.hlsUrl,
@@ -157,9 +201,11 @@ export default function VideoCreate() {
           providerVideoId: direct.uid,
         });
       } catch {
+        setPublishStatus('Convex storagega yuklanmoqda...');
         const uploadUrl = await generateUploadUrl();
-        const storageId = await uploadToConvex(uploadUrl, video.uri, video.mimeType ?? 'video/mp4');
-        if (!storageId) throw new Error('upload failed');
+        const storageId = await uploadToConvex(uploadUrl, video.uri, video.mimeType ?? 'video/mp4', video.file);
+        if (!storageId) throw new Error('Convex storage upload failed. Console logdagi uploadToConvex xabarini tekshiring.');
+        setPublishStatus("Video e'loni yaratilmoqda...");
         reelId = await createReel({
           ...baseReel,
           videoId: storageId as Id<'_storage'>,
@@ -167,15 +213,18 @@ export default function VideoCreate() {
         });
       }
       router.replace({ pathname: '/reels', params: { start: reelId } } as never);
-    } catch {
-      Alert.alert('Xatolik', 'Video yuklanmadi. Internetni tekshirib qayta urinib koring.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Internetni tekshirib qayta urinib koring.';
+      Alert.alert('Xatolik', `Video yuklanmadi. ${message}`);
     } finally {
       setBusy(false);
+      setPublishStatus(null);
     }
   };
 
   return (
     <View className="flex-1 bg-background">
+      <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <SafeAreaView className="flex-1" edges={['top', 'bottom']}>
         <View className="h-12 flex-row items-center px-4">
           <Pressable
@@ -221,7 +270,7 @@ export default function VideoCreate() {
           <ScrollView
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 28 }}
+            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 48 }}
           >
             <View className="mt-3 overflow-hidden rounded-3xl bg-black" style={{ aspectRatio: 9 / 14 }}>
               <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="cover" nativeControls />
@@ -356,12 +405,13 @@ export default function VideoCreate() {
             >
               <Ionicons name="cloud-upload-outline" size={21} color="#fff" />
               <AppText className="ml-2 font-bold text-base text-white">
-                {busy ? 'Yuklanmoqda...' : 'Video bozorga joylash'}
+                {busy ? (publishStatus ?? 'Yuklanmoqda...') : 'Video bozorga joylash'}
               </AppText>
             </Pressable>
           </ScrollView>
         )}
       </SafeAreaView>
+      </KeyboardAvoidingView>
     </View>
   );
 }

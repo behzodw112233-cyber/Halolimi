@@ -266,7 +266,7 @@ export default defineSchema({
     soldCount: v.optional(v.number()),
     // Presence: last heartbeat time. "online" = within the last minute.
     lastSeen: v.optional(v.number()),
-    // Wallet balance in UZS (soʻm), topped up via inPAY.
+    // Wallet balance in UZS (soʻm), topped up via Stripe.
     balance: v.optional(v.number()),
     // Marked as an official dealer from the admin panel. Only dealers can have
     // showcase videos attached (see dealers table / dilerlar admin page).
@@ -512,25 +512,61 @@ export default defineSchema({
     .index('by_status', ['status'])
     .index('by_updated', ['updatedAt']),
 
-  // inPAY payment invoices. Created pending when the app requests a top-up,
-  // flipped to success/failed when inPAY's webhook is verified server-side.
+  // Stripe payment invoices. Created pending when the app requests a top-up,
+  // promotion, or savings deposit, then settled after Stripe is verified server-side.
   invoices: defineTable({
-    orderId: v.string(), // inPAY order_id
+    orderId: v.string(), // Stripe PaymentIntent or Checkout Session id.
     userId: v.id('users'),
     amount: v.number(), // UZS
-    purpose: v.string(), // 'topup' | 'promote'
-    method: v.optional(v.string()), // click | payme | inPAY
+    purpose: v.string(), // 'topup' | 'promote' | 'savings'
+    method: v.optional(v.string()), // stripe
     status: invoiceStatus,
     payUrl: v.optional(v.string()),
     transactionId: v.optional(v.number()),
+    checkoutSessionId: v.optional(v.string()),
+    gateway: v.optional(v.string()),
+    paymentIntentId: v.optional(v.string()),
+    // Exact Stripe charge, in the configured currency's minor unit.
+    stripeAmount: v.optional(v.number()),
+    stripeCurrency: v.optional(v.string()),
+    stripeEventId: v.optional(v.string()),
     // Promotion target (purpose === 'promote').
     listingId: v.optional(v.id('listings')),
     tier: v.optional(listingTier),
+    // Savings target for Stripe Jamg'arma payments.
+    goalId: v.optional(v.id('savingsGoals')),
     createdAt: v.number(),
     paidAt: v.optional(v.number()),
   })
     .index('by_order', ['orderId'])
     .index('by_user', ['userId']),
+
+  // User savings targets: first release is goal-based saving toward an animal.
+  savingsGoals: defineTable({
+    userId: v.id('users'),
+    animalType: v.string(),
+    emoji: v.string(),
+    title: v.string(),
+    targetAmount: v.number(),
+    savedAmount: v.number(),
+    status: v.union(v.literal('active'), v.literal('completed'), v.literal('cancelled')),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index('by_user', ['userId'])
+    .index('by_user_status', ['userId', 'status']),
+
+  savingsDeposits: defineTable({
+    goalId: v.id('savingsGoals'),
+    userId: v.id('users'),
+    amount: v.number(),
+    source: v.union(v.literal('wallet'), v.literal('stripe')),
+    reference: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index('by_goal', ['goalId'])
+    .index('by_user', ['userId'])
+    .index('by_reference', ['reference']),
   bountyCreators: defineTable({
     phone: v.string(),
     legalName: v.string(),

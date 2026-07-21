@@ -1,21 +1,18 @@
 import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { Ionicons } from '@expo/vector-icons';
-import { useAction, useQuery } from 'convex/react';
+import { useAction } from 'convex/react';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as WebBrowser from 'expo-web-browser';
-import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../components/app-text';
 import { BRAND_BLUE } from '../constants/theme';
 import { useAuth } from '../lib/auth';
-import { browserCheckoutUrl } from '../lib/checkout-url';
+import { StripeCardSheet } from '../components/stripe-card-sheet';
 
-// Map the UI payment button to PayTech/inPAY payment_method values.
-const METHOD_MAP: Record<string, string> = { click: 'click', payme: 'payme', uzcard: 'atmos' };
 type PromoTier = 'alo' | 'zor' | 'vip' | 'lux';
 
 type Tier = {
@@ -34,12 +31,6 @@ const TIERS: Tier[] = [
   { id: 'alo', badge: "AʼLO", badgeColor: '#9CA3AF', price: '6 000' },
 ];
 
-const PAYMENTS = [
-  { id: 'uzcard', label: 'Uzcard/Humo', color: '#1E3A8A' },
-  { id: 'payme', label: 'Payme', color: '#33CCCC' },
-  { id: 'click', label: 'Click', color: BRAND_BLUE },
-];
-
 const tap = () => {
   if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
 };
@@ -49,43 +40,30 @@ export default function Promote() {
   const { listingId } = useLocalSearchParams<{ listingId?: string }>();
   const { userId } = useAuth();
   const [selected, setSelected] = useState<PromoTier>('vip');
-  const [payOpen, setPayOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cardOpen, setCardOpen] = useState(false);
+  const [cardClientSecret, setCardClientSecret] = useState<string | null>(null);
 
-  const createPromoteInvoice = useAction(api.inpay.createPromoteInvoice);
-
-  // Admin controls which payment methods are enabled.
-  const settings = useQuery(api.settings.get);
-  const enabledPayments = PAYMENTS.filter((p) => {
-    if (!settings) return true;
-    if (p.id === 'payme') return settings.payme;
-    if (p.id === 'click') return settings.click;
-    if (p.id === 'uzcard') return settings.uzcard;
-    return true;
-  });
+  const createPromotionPayment = useAction(api.jamgarma.createStripePromotionPayment);
 
   const tier = TIERS.find((t) => t.id === selected)!;
 
-  // Pay for the selected plan via inPAY. The boost is applied server-side once
-  // the payment webhook is verified (inpay.markPaid), so we just open checkout.
-  const pay = async (methodId: string) => {
+  const pay = async () => {
     if (busy) return;
     if (!userId || !listingId) {
-      setPayOpen(false);
       router.replace('/review');
       return;
     }
     setBusy(true);
     try {
-      const { payUrl } = await createPromoteInvoice({
+      const payment = await createPromotionPayment({
         userId,
         listingId: listingId as Id<'listings'>,
         tier: selected,
-        method: METHOD_MAP[methodId] ?? 'inPAY',
       });
-      setPayOpen(false);
-      await WebBrowser.openBrowserAsync(browserCheckoutUrl(payUrl));
-      router.replace('/review');
+      if (!payment.ok) throw new Error("To'lovni yaratib bo'lmadi.");
+      setCardClientSecret(payment.clientSecret);
+      setCardOpen(true);
     } catch (e) {
       Alert.alert('Xatolik', e instanceof Error ? e.message : 'Toʻlovni yaratib boʻlmadi.');
     } finally {
@@ -176,7 +154,7 @@ export default function Promote() {
         {/* CTA */}
         <View className="border-t border-border bg-background px-4 pb-2 pt-3">
           <Pressable
-            onPress={() => { tap(); setPayOpen(true); }}
+            onPress={() => { tap(); void pay(); }}
             className="h-14 items-center justify-center rounded-2xl active:opacity-90"
             style={{ backgroundColor: BRAND_BLUE }}
           >
@@ -185,7 +163,21 @@ export default function Promote() {
         </View>
       </SafeAreaView>
 
-      {/* Payment sheet */}
+      <StripeCardSheet
+        visible={cardOpen}
+        title={`${tier.badge} reklama`}
+        amount={`${tier.price} so'm`}
+        clientSecret={cardClientSecret}
+        onClose={() => { setCardOpen(false); setCardClientSecret(null); }}
+        onPaid={() => {
+          setCardOpen(false);
+          setCardClientSecret(null);
+          Alert.alert("To'lov qabul qilindi", 'Reklama faollashdi.');
+          router.replace('/review');
+        }}
+      />
+
+      {/*
       <Modal visible={payOpen} transparent animationType="slide" onRequestClose={() => setPayOpen(false)}>
         <Pressable className="flex-1 bg-black/40" onPress={() => setPayOpen(false)} />
         <View className="rounded-t-3xl bg-background px-5 pb-8 pt-5">
@@ -199,7 +191,7 @@ export default function Promote() {
             {enabledPayments.map((p) => (
               <Pressable
                 key={p.id}
-                onPress={() => pay(p.id)}
+                onPress={() => void pay()}
                 disabled={busy}
                 className="h-16 flex-row items-center rounded-2xl border border-border bg-surface px-4 active:opacity-70"
                 style={{ opacity: busy ? 0.5 : 1 }}
@@ -223,6 +215,14 @@ export default function Promote() {
           )}
         </View>
       </Modal>
+      <StripeCardSheet
+        visible={cardOpen}
+        title={`${tier.badge} reklama`}
+        amount={`${tier.price} so'm`}
+        clientSecret={clientSecret}
+        onClose={() => { setCardOpen(false); setClientSecret(null); }}
+        onPaid={() => { setCardOpen(false); setClientSecret(null); Alert.alert("To'lov qabul qilindi", "Stripe tasdiqlagach reklama faollashadi."); router.replace('/review'); }}
+      */}
     </View>
   );
 }

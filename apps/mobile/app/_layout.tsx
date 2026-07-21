@@ -30,6 +30,8 @@ import { IncomingCallOverlay } from '../components/incoming-call';
 import { AuthProvider } from '../lib/auth';
 import { LocationProvider } from '../lib/location';
 import { PushManager } from '../lib/push';
+import { runtime } from '../lib/runtime';
+import { StripePaymentProvider } from '../components/stripe-payment-provider';
 import '../global.css';
 
 // Keep the branded splash on screen until fonts are ready — otherwise the user
@@ -80,9 +82,10 @@ export default function RootLayout() {
         <ConvexClientProvider>
         <AuthProvider>
         <LocationProvider>
+        <StripePaymentProvider>
         <HeroUINativeProvider config={{ devInfo: { stylingPrinciples: false } }}>
-          <PushManager />
-          <IncomingCallOverlay />
+          {runtime.supportsPush ? <PushManager /> : null}
+          {runtime.supportsIncomingCalls ? <IncomingCallOverlay /> : null}
           <StatusBar style="dark" />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="index" />
@@ -95,6 +98,7 @@ export default function RootLayout() {
             <Stack.Screen name="reels" />
             <Stack.Screen name="video-create" />
             <Stack.Screen name="promote" />
+            <Stack.Screen name="jamgarma" />
             <Stack.Screen name="review" />
             <Stack.Screen name="listing/[id]" />
             <Stack.Screen name="dealer/[id]" />
@@ -105,6 +109,7 @@ export default function RootLayout() {
             <Stack.Screen name="settings" />
           </Stack>
         </HeroUINativeProvider>
+        </StripePaymentProvider>
         </LocationProvider>
         </AuthProvider>
         </ConvexClientProvider>

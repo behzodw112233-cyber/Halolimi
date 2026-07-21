@@ -68,8 +68,6 @@ export const METHOD_COLOR: Record<string, string> = {
   Click: '#0A6CFF',
   Atmos: '#7C3AED',
   Uzcard: '#1E3A8A',
-  inPAY: '#16A34A',
-  PayTech: '#111827',
 };
 
 // ---- Ads Manager (Meta-style) ----

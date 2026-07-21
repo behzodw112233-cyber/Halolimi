@@ -16,7 +16,7 @@ function streamConfig() {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const token = process.env.CLOUDFLARE_STREAM_API_TOKEN;
   if (!accountId || !token) {
-    throw new Error('Cloudflare Stream is not configured');
+    return null;
   }
   return { accountId, token };
 }
@@ -31,7 +31,14 @@ function playbackBase() {
 export const createDirectUpload = action({
   args: { maxDurationSeconds: v.optional(v.number()) },
   handler: async (_ctx, { maxDurationSeconds }) => {
-    const { accountId, token } = streamConfig();
+    const config = streamConfig();
+    if (!config) {
+      return {
+        ok: false as const,
+        error: 'Cloudflare Stream is not configured',
+      };
+    }
+    const { accountId, token } = config;
     const reservedSeconds = Math.max(5, Math.min(maxDurationSeconds ?? 60, 600));
     const res = await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/direct_upload`,
@@ -49,10 +56,14 @@ export const createDirectUpload = action({
     const data = (await res.json()) as DirectUploadResponse;
     if (!res.ok || !data.success || !data.result?.uploadURL || !data.result.uid) {
       const message = data.errors?.[0]?.message ?? 'Cloudflare Stream upload URL failed';
-      throw new Error(message);
+      return {
+        ok: false as const,
+        error: message,
+      };
     }
     const base = playbackBase();
     return {
+      ok: true as const,
       uid: data.result.uid,
       uploadUrl: data.result.uploadURL,
       hlsUrl: `${base}/${data.result.uid}/manifest/video.m3u8`,

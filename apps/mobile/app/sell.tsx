@@ -10,6 +10,7 @@ import { Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText } from '../components/app-text';
 import { CATEGORY_IMAGES } from '../constants/category-images';
+import { runtime } from '../lib/runtime';
 
 const BRAND_BLUE = '#0A6CFF';
 
@@ -64,17 +65,19 @@ export default function Sell() {
                   setMode('listing');
                 }}
               />
-              <PostTypeCard
-                icon="videocam-outline"
-                title="Video e'lon"
-                body="Hayvonni kamerada oling yoki galereyadan video tanlang"
-                action="Video qo'shish"
-                accent
-                onPress={() => {
-                  if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
-                  router.push('/video-create' as never);
-                }}
-              />
+              {runtime.supportsVideoPosting ? (
+                <PostTypeCard
+                  icon="videocam-outline"
+                  title="Video e'lon"
+                  body="Hayvonni kamerada oling yoki galereyadan video tanlang"
+                  action="Video qo'shish"
+                  accent
+                  onPress={() => {
+                    if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
+                    router.push('/video-create' as never);
+                  }}
+                />
+              ) : null}
             </View>
           ) : (
             <>

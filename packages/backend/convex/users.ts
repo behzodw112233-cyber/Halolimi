@@ -36,7 +36,13 @@ export const getOrCreate = mutation({
       .query('users')
       .withIndex('by_phone', (q) => q.eq('phone', phone))
       .first();
-    if (existing) return existing._id;
+    if (existing) {
+      const realName = name?.trim();
+      if (realName && existing.name === 'Foydalanuvchi') {
+        await ctx.db.patch(existing._id, { name: realName });
+      }
+      return existing._id;
+    }
     return await ctx.db.insert('users', {
       name: name?.trim() || 'Foydalanuvchi',
       phone,

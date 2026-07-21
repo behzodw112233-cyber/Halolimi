@@ -26,9 +26,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppText } from '../components/app-text';
+import { NativeFeatureUnavailable } from '../components/native-feature-unavailable';
 import { BRAND_BLUE } from '../constants/theme';
 import { useAuth } from '../lib/auth';
 import { useVideoPlayer, VideoView } from '../lib/optional-native';
+import { runtime } from '../lib/runtime';
 
 type Reel = FunctionReturnType<typeof api.reels.list>[number];
 
@@ -74,6 +76,18 @@ function safeVideoCall(fn: () => void) {
 }
 
 export default function ReelsScreen() {
+  if (!runtime.supportsReels) {
+    return (
+      <NativeFeatureUnavailable
+        title="Video bozor native appda"
+        body="Telegram ichida eʼlonlar va qidiruv ishlaydi. Video bozor uchun Halolmia mobil ilovasini oching."
+      />
+    );
+  }
+  return <ReelsContent />;
+}
+
+function ReelsContent() {
   const router = useRouter();
   const { start, sellerId } = useLocalSearchParams<{ start?: string; sellerId?: string }>();
   const { userId, user } = useAuth();

@@ -13,6 +13,7 @@ import { AppText } from '../../components/app-text';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
+import { runtime } from '../../lib/runtime';
 
 const TABS = [
   { key: 'listings', label: "E'lonlar", icon: 'heart' },
@@ -23,6 +24,7 @@ const TABS = [
 export default function Saved() {
   const router = useRouter();
   const { userId } = useAuth();
+  const visibleTabs = runtime.supportsReels ? TABS : TABS.filter((t) => t.key !== 'videos');
   const [tab, setTab] = useState<(typeof TABS)[number]['key']>('listings');
 
   const saved = useQuery(api.saved.list, userId ? { userId } : 'skip');
@@ -98,7 +100,7 @@ export default function Saved() {
           </GlassPanel>
 
           <View className="mt-3 flex-row rounded-[24px] border border-white/70 bg-white/55 p-1.5">
-            {TABS.map((t) => {
+            {visibleTabs.map((t) => {
               const active = tab === t.key;
               return (
                 <Pressable

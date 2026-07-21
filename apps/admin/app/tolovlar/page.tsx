@@ -2,8 +2,8 @@
 
 import { api } from '@halolmia/backend/convex/_generated/api';
 import { Button, Card, Chip } from '@heroui/react';
-import { useAction, useMutation, useQuery } from 'convex/react';
-import { ExternalLink, RefreshCw, Trash2 } from 'lucide-react';
+import { useMutation, useQuery } from 'convex/react';
+import { Trash2 } from 'lucide-react';
 import { ChartCard } from '@/components/chart-card';
 import { AreaMini, DonutMini } from '@/components/charts/mini';
 import { PageHeader } from '@/components/page-header';
@@ -16,6 +16,7 @@ const fmtDateTime = (ts?: number) =>
 const PURPOSE_META: Record<string, string> = {
   topup: 'Hisob toldirish',
   promote: 'Reklama',
+  savings: "Jamg'arma",
 };
 
 const STATUS_META: Record<
@@ -29,10 +30,9 @@ const STATUS_META: Record<
 };
 
 export default function TolovlarPage() {
-  const invoices = useQuery(api.inpay.listInvoices) ?? [];
+  const invoices = useQuery(api.jamgarma.listInvoices) ?? [];
   const payments = useQuery(api.payments.list) ?? [];
   const overview = useQuery(api.stats.overview);
-  const refreshInvoice = useAction(api.inpay.refreshInvoice);
   const removePayment = useMutation(api.payments.remove);
 
   const pendingInvoices = invoices.filter((i) => i.status === 'pending').length;
@@ -48,7 +48,7 @@ export default function TolovlarPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <PageHeader title="Tolovlar" subtitle="PayTech/inPAY invoicelar, balans toldirish va reklama tolovlari" />
+      <PageHeader title="Tolovlar" subtitle="Stripe invoicelar, balans toldirish va reklama tolovlari" />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
         {[
@@ -109,7 +109,7 @@ export default function TolovlarPage() {
                 {invoices.map((invoice) => {
                   const status = STATUS_META[invoice.status] ?? STATUS_META.pending;
                   const purpose = invoice.purpose ?? 'topup';
-                  const method = invoice.method ?? 'inPAY';
+                  const method = invoice.method ?? 'Stripe';
                   return (
                     <tr key={invoice._id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
                       <td className="px-5 py-3.5">
@@ -139,6 +139,11 @@ export default function TolovlarPage() {
                       </td>
                       <td className="px-5 py-3.5 font-medium text-neutral-900">
                         {fmtSum(invoice.amount)}
+                        {invoice.stripeAmount && invoice.stripeCurrency ? (
+                          <p className="mt-0.5 text-xs font-normal text-neutral-400">
+                            Stripe: {invoice.stripeAmount} {invoice.stripeCurrency.toUpperCase()} minor units
+                          </p>
+                        ) : null}
                       </td>
                       <td className="px-5 py-3.5">
                         <Chip variant="soft" color={status.color} size="sm">
@@ -147,30 +152,7 @@ export default function TolovlarPage() {
                       </td>
                       <td className="px-5 py-3.5 text-neutral-500">{fmtDateTime(invoice.createdAt)}</td>
                       <td className="px-5 py-3.5 text-neutral-500">{fmtDateTime(invoice.paidAt)}</td>
-                      <td className="px-5 py-3.5 text-right">
-                        <div className="flex justify-end gap-2">
-                          {invoice.payUrl ? (
-                            <a
-                              href={invoice.payUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex h-8 items-center justify-center rounded-lg px-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
-                            >
-                              <ExternalLink size={15} />
-                            </a>
-                          ) : null}
-                          {invoice.status === 'pending' ? (
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              className="gap-1"
-                              onPress={() => refreshInvoice({ orderId: invoice.orderId })}
-                            >
-                              <RefreshCw size={14} /> Tekshirish
-                            </Button>
-                          ) : null}
-                        </div>
-                      </td>
+                      <td className="px-5 py-3.5 text-right"></td>
                     </tr>
                   );
                 })}

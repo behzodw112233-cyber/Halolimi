@@ -3,6 +3,7 @@ import { api } from '@halolmia/backend/convex/_generated/api';
 import type { Id } from '@halolmia/backend/convex/_generated/dataModel';
 import { useMutation, useQuery } from 'convex/react';
 import type { FunctionReturnType } from 'convex/server';
+import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -16,6 +17,8 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
+  StyleSheet,
   TextInput,
   View,
 } from 'react-native';
@@ -39,6 +42,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from '../../lib/optional-native';
+import { runtime } from '../../lib/runtime';
 import { uploadToConvex } from '../../lib/upload';
 
 type Msg = FunctionReturnType<typeof api.messages.list>[number];
@@ -53,6 +57,12 @@ const SELLER_REPORT_REASONS = [
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const TYPING_THROTTLE = 2500;
 const SUSPICIOUS_RE = /(oldindan|avans|karta|plastik|pul tashla|pul yubor|payme|click|kod|sms|parol|password)/i;
+const QUICK_REPLIES = [
+  'Narxi qancha?',
+  'Oxirgi narx?',
+  'Qayerda joylashgan?',
+  'Bugun ko‘rsam bo‘ladimi?',
+];
 
 /** HH:MM in 24h, locale-safe on Android. */
 function clock(ms: number) {
@@ -233,7 +243,7 @@ export default function Conversation() {
 
   const otherName = info?.otherName ?? String(name);
   const callTarget = sellerUserId ?? ((info?.otherId ?? undefined) as Id<'users'> | undefined);
-  const canCall = !!callTarget && callTarget !== userId;
+  const canCall = runtime.supportsVideoCalls && !!callTarget && callTarget !== userId;
   const canReviewSeller = !!sellerUserId && sellerUserId !== userId;
   const otherLastReadAt = info?.otherLastReadAt ?? 0;
   const suspiciousDraft = SUSPICIOUS_RE.test(draft);
@@ -434,18 +444,31 @@ export default function Conversation() {
     }
   };
 
-  const renderItem = ({ item }: { item: Msg }) => {
+  const renderItem = ({ item, index }: { item: Msg; index: number }) => {
     const mine = !!userId && item.senderId === userId;
     const deleted = !!item.deletedAt;
     const read = mine ? item.createdAt <= otherLastReadAt : false;
     const reacts = groupReactions(item.reactions);
+    const olderMessage = data[index + 1];
+    const groupedWithOlder =
+      !!olderMessage && olderMessage.senderId === item.senderId && item.createdAt - olderMessage.createdAt < 3 * 60 * 1000;
     return (
       <Pressable
         onLongPress={() => !deleted && setActionMsg(item)}
         delayLongPress={250}
-        className={`px-3 py-1 ${mine ? 'items-end' : 'items-start'}`}
+        className={`px-4 ${groupedWithOlder ? 'pb-0.5 pt-0.5' : 'pb-1.5 pt-3'} ${mine ? 'items-end' : 'items-start'}`}
       >
-        <View className="max-w-[80%] rounded-2xl px-3.5 py-2.5" style={{ backgroundColor: mine ? BRAND_BLUE : '#EAEAEC' }}>
+        <View
+          className="max-w-[78%] rounded-[20px] px-3.5 py-2.5"
+          style={{
+            backgroundColor: mine ? BRAND_BLUE : '#fff',
+            borderTopRightRadius: mine && groupedWithOlder ? 7 : 20,
+            borderTopLeftRadius: !mine && groupedWithOlder ? 7 : 20,
+            borderBottomRightRadius: mine ? 7 : 20,
+            borderBottomLeftRadius: mine ? 20 : 7,
+            ...(mine ? styles.outgoingBubble : styles.incomingBubble),
+          }}
+        >
           {item.replyPreview && !deleted ? (
             <View
               className="mb-1.5 rounded-lg border-l-2 px-2 py-1"
@@ -521,20 +544,29 @@ export default function Conversation() {
   const actionIsMine = !!actionMsg && !!userId && actionMsg.senderId === userId;
 
   return (
-    <View className="flex-1 bg-background" style={{ paddingTop: top }}>
+    <View className="flex-1 bg-[#F8FAFC]">
+      <View
+        className="flex-1 overflow-hidden bg-[#F8FAFC]"
+        style={{ paddingTop: top }}
+      >
       {/* Header */}
-      <View className="flex-row items-center border-b border-border px-2 py-2">
+      <View className="overflow-hidden border-b border-[#E2E8F0] bg-white/95">
+        <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
+        <View className="flex-row items-center px-3 py-2">
         <Pressable
           onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/chat'))}
           hitSlop={10}
-          className="h-9 w-9 items-center justify-center"
+          className="h-10 w-10 items-center justify-center rounded-full active:bg-[#EAF2FF]"
         >
           <Ionicons name="arrow-back" size={24} color={BRAND_BLUE} />
         </Pressable>
-        <View className="mr-2 h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE }}>
+        <View className="mr-2 h-11 w-11 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE }}>
           <AppText className="font-semibold text-base text-white">{otherName.charAt(0).toUpperCase()}</AppText>
+          {info?.otherOnline ? (
+            <View className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white" style={{ backgroundColor: '#22C55E' }} />
+          ) : null}
         </View>
-        <View className="flex-1">
+          <View className="min-w-0 flex-1">
           <AppText className="font-semibold text-base text-foreground" numberOfLines={1}>
             {otherName}
           </AppText>
@@ -559,12 +591,13 @@ export default function Conversation() {
             </Pressable>
           </>
         ) : null}
+        </View>
       </View>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={headerHeight}
+        behavior={Platform.select({ ios: 'padding', android: 'height', default: 'height' })}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
       >
         {!messages ? (
           <View className="flex-1 items-center justify-center">
@@ -576,7 +609,7 @@ export default function Conversation() {
             inverted
             keyExtractor={(m) => m._id}
             renderItem={renderItem}
-            contentContainerStyle={{ paddingVertical: 8, flexGrow: 1 }}
+            contentContainerStyle={{ paddingBottom: 16, paddingTop: 8, flexGrow: 1 }}
             keyboardShouldPersistTaps="handled"
             ListHeaderComponent={info?.otherTyping ? <TypingBubble /> : null}
             ListFooterComponent={
@@ -631,10 +664,7 @@ export default function Conversation() {
 
         {/* Input bar */}
         {recorderState.isRecording ? (
-          <View
-            className="flex-row items-center border-t border-border px-3 pt-2"
-            style={{ paddingBottom: Math.max(bottom, 8) }}
-          >
+          <View className="flex-row items-center border-t border-white/70 bg-white/85 px-3 pt-2" style={{ paddingBottom: Math.max(bottom, 8) }}>
             <Pressable
               onPress={cancelRecording}
               hitSlop={8}
@@ -659,29 +689,49 @@ export default function Conversation() {
             </Pressable>
           </View>
         ) : (
-          <View className="flex-row items-end border-t border-border px-3 pt-2" style={{ paddingBottom: Math.max(bottom, 8) }}>
+          <View className="border-t border-[#E2E8F0] bg-white px-3 pt-2" style={{ paddingBottom: Math.max(bottom, 10) }}>
+            {!editing && !draft.trim() ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8, paddingBottom: 8 }}
+              >
+                {QUICK_REPLIES.map((reply) => (
+                  <Pressable key={reply} onPress={() => onChangeDraft(reply)} className="flex-row items-center rounded-full border border-[#DCE9FF] bg-[#F8FBFF] px-3 py-2 active:bg-[#EAF2FF]">
+                    <Ionicons name="flash-outline" size={12} color={BRAND_BLUE} />
+                    <AppText className="ml-1 font-semibold text-xs text-[#0F172A]">{reply}</AppText>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : null}
+            <View className="min-w-0 flex-row items-end">
             {!editing ? (
-              <Pressable onPress={attachImage} disabled={sending} hitSlop={6} className="mb-1.5 mr-1 h-10 w-9 items-center justify-center">
+              <Pressable
+                onPress={attachImage}
+                disabled={sending}
+                className="mb-0.5 mr-1 h-12 w-12 items-center justify-center rounded-full active:bg-[#EAF2FF]"
+                style={{ opacity: sending ? 0.5 : 1 }}
+              >
                 <Ionicons name="image-outline" size={24} color={BRAND_BLUE} />
               </Pressable>
             ) : null}
-            <View className="mr-2 max-h-28 flex-1 justify-center rounded-2xl border border-border bg-surface px-4 py-1">
+            <View className="mr-2 min-w-0 max-h-28 flex-1 rounded-[24px] border border-[#DCE4EF] bg-white" style={styles.inputPill}>
               <TextInput
                 value={draft}
                 onChangeText={onChangeDraft}
                 placeholder="Xabar yozing…"
-                placeholderTextColor="#9ca3af"
+                placeholderTextColor="#94A3B8"
                 multiline
-                className="text-base text-foreground"
-                style={{ fontFamily: 'Inter-Regular', paddingTop: 8, paddingBottom: 8, maxHeight: 100 }}
+                className="min-h-12 bg-transparent px-4 text-base text-[#0F172A]"
+                style={{ fontFamily: 'Inter-Regular', paddingTop: 11, paddingBottom: 10, maxHeight: 100 }}
               />
             </View>
-            {!editing && !draft.trim() ? (
+            {runtime.supportsNativeCamera && !editing && !draft.trim() ? (
               <Pressable
                 onPress={startRecording}
                 disabled={sending}
-                className="h-11 w-11 items-center justify-center rounded-full active:opacity-80"
-                style={{ backgroundColor: BRAND_BLUE }}
+                className="h-12 w-12 items-center justify-center rounded-full active:opacity-80"
+                style={{ backgroundColor: BRAND_BLUE, opacity: sending ? 0.5 : 1 }}
               >
                 <Ionicons name="mic" size={20} color="#fff" />
               </Pressable>
@@ -689,12 +739,13 @@ export default function Conversation() {
               <Pressable
                 onPress={onSend}
                 disabled={!draft.trim() || sending}
-                className="h-11 w-11 items-center justify-center rounded-full active:opacity-80"
-                style={{ backgroundColor: draft.trim() && !sending ? BRAND_BLUE : '#cbd5e1' }}
+                className="h-12 w-12 items-center justify-center rounded-full active:opacity-80"
+                style={{ backgroundColor: BRAND_BLUE, opacity: draft.trim() && !sending ? 1 : 0.5 }}
               >
                 <Ionicons name={editing ? 'checkmark' : 'send'} size={19} color="#fff" />
               </Pressable>
             )}
+            </View>
           </View>
         )}
       </KeyboardAvoidingView>
@@ -763,6 +814,7 @@ export default function Conversation() {
           ))}
         </View>
       </Modal>
+      </View>
     </View>
   );
 }
@@ -787,3 +839,27 @@ function ActionRow({
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  incomingBubble: {
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  outgoingBubble: {
+    shadowColor: BRAND_BLUE,
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  inputPill: {
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+});

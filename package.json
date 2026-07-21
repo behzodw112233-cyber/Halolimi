@@ -21,7 +21,6 @@
     "dev:services": "concurrently -k -n convex,admin,bot -c blue,magenta,green \"convex dev\" \"npm run dev -w @halolmia/admin\" \"npm run dev:poll -w @halolmia/bot\"",
     "dev:mobile": "npm run dev -w @halolmia/mobile",
     "dev:kinda-bounty": "npm run dev -w @halolmia/kinda-bounty",
-    "dev:paytech": "npm run dev -w @halolmia/paytech",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "clean": "turbo run clean",

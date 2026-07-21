@@ -6,18 +6,20 @@ import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { Chip } from 'heroui-native';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,18 +29,11 @@ import { VerifiedSellerBadge } from '../../components/trust-safety';
 import { CATEGORY_IMAGES } from '../../constants/category-images';
 import { BRAND_BLUE } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
-import { browserCheckoutUrl } from '../../lib/checkout-url';
+import { runtime } from '../../lib/runtime';
+import { StripeCardSheet } from '../../components/stripe-card-sheet';
 
 // Set EXPO_PUBLIC_BOT_USERNAME (without @) so Telegram verify deep link works.
 const BOT_USERNAME = process.env.EXPO_PUBLIC_BOT_USERNAME ?? '';
-
-const METHOD_MAP: Record<string, string> = { click: 'click', payme: 'payme', uzcard: 'atmos' };
-
-const PAYMENTS = [
-  { id: 'uzcard', label: 'Uzcard/Humo', color: '#1E3A8A' },
-  { id: 'payme', label: 'Payme', color: '#33CCCC' },
-  { id: 'click', label: 'Click', color: BRAND_BLUE },
-];
 
 const TOPUP_PRESETS = [10000, 25000, 50000, 100000];
 function makeToken(): string {
@@ -52,6 +47,7 @@ function makeToken(): string {
 }
 
 const fmtSom = (n: number) => `${n.toLocaleString('ru-RU')} soʻm`;
+const fmtNumber = (n: number) => n.toLocaleString('ru-RU');
 
 const STATUS_META: Record<string, { label: string; bg: string }> = {
   active: { label: 'Faol', bg: '#86EFAC' },
@@ -70,7 +66,9 @@ function GlassStat({ label, value }: { label: string; value: number }) {
 
 export default function Profile() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const { userId, rootUserId, user, logout, adoptSession, switchAccount } = useAuth();
+  const compactBalanceCard = width < 560;
 
   const listings = useQuery(
     api.listings.byOwner,
@@ -80,53 +78,55 @@ export default function Profile() {
     api.reels.bySeller,
     userId ? { sellerId: userId, userId, limit: 8 } : 'skip'
   ) ?? [];
-  const settings = useQuery(api.settings.get);
   const accountOwnerId = rootUserId ?? userId;
   const accounts = useQuery(
     api.users.accountSwitcher,
     accountOwnerId && userId ? { ownerId: accountOwnerId, activeId: userId } : 'skip'
   ) ?? [];
 
-  // --- inPAY wallet top-up ---
-  const createInvoice = useAction(api.inpay.createInvoice);
+  const createStripeTopupPayment = useAction(api.jamgarma.createStripeTopupPayment);
+  const updateProfile = useMutation(api.users.updateProfile);
   const startTelegramSession = useMutation(api.authTelegram.start);
   const createLinkedAccount = useMutation(api.users.createLinkedAccount);
   const [topupOpen, setTopupOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [newAccountOpen, setNewAccountOpen] = useState(false);
   const [newAccountName, setNewAccountName] = useState('');
+  const [nameOpen, setNameOpen] = useState(false);
+  const [namePrompted, setNamePrompted] = useState(false);
+  const [realName, setRealName] = useState('');
   const [newAccountKind, setNewAccountKind] = useState<'business' | 'farm' | 'dealer'>('business');
   const [amount, setAmount] = useState('');
-  const [orderId, setOrderId] = useState<string | null>(null);
+  const [cardOpen, setCardOpen] = useState(false);
+  const [cardClientSecret, setCardClientSecret] = useState<string | null>(null);
+  const [cardAmount, setCardAmount] = useState(0);
   const [verifyToken, setVerifyToken] = useState<string | null>(null);
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [accountBusy, setAccountBusy] = useState(false);
-  const invoice = useQuery(api.inpay.byOrder, orderId ? { orderId } : 'skip');
   const verifyStatus = useQuery(
     api.authTelegram.status,
     verifyToken ? { token: verifyToken } : 'skip'
   );
-  const enabledPayments = PAYMENTS.filter((p) => {
-    if (!settings) return true;
-    if (p.id === 'payme') return settings.payme;
-    if (p.id === 'click') return settings.click;
-    if (p.id === 'uzcard') return settings.uzcard;
-    return true;
-  });
 
   const activeAccount = accounts.find((a) => a._id === userId) ?? accounts[0];
 
   useEffect(() => {
-    if (!invoice) return;
-    if (invoice.status === 'success') {
-      Alert.alert('Toʻldirildi', `Hisobingizga ${fmtSom(invoice.amount)} qoʻshildi.`);
-      setTimeout(() => setOrderId(null), 0);
-    } else if (invoice.status === 'failed' || invoice.status === 'cancelled') {
-      Alert.alert('Toʻlov amalga oshmadi', 'Qayta urinib koʻring.');
-      setTimeout(() => setOrderId(null), 0);
+    if (!namePrompted && user?.name === 'Foydalanuvchi') {
+      setNamePrompted(true);
+      setNameOpen(true);
     }
-  }, [invoice]);
+  }, [namePrompted, user?.name]);
+
+  const saveRealName = async () => {
+    if (!userId || realName.trim().length < 2) return;
+    try {
+      await updateProfile({ id: userId, name: realName.trim() });
+      setNameOpen(false);
+    } catch (error) {
+      Alert.alert('Xatolik', error instanceof Error ? error.message : 'Ism saqlanmadi.');
+    }
+  };
 
   useEffect(() => {
     if (verifyStatus?.status === 'verified' && verifyStatus.userId) {
@@ -139,19 +139,20 @@ export default function Profile() {
     }
   }, [verifyStatus, adoptSession]);
 
-  const startTopup = async (som: number, methodId = 'inPAY') => {
-    if (!userId || !Number.isFinite(som) || som < 1000 || busy) return;
+  const startTopup = async (som: number) => {
+    if (!userId || !Number.isFinite(som) || som < 10_000 || busy) return;
     setBusy(true);
     try {
-      const { orderId: oid, payUrl } = await createInvoice({
+      const payment = await createStripeTopupPayment({
         userId,
         amount: Math.round(som),
-        method: METHOD_MAP[methodId] ?? 'inPAY',
       });
-      setOrderId(oid);
+      if (!payment.ok) throw new Error(payment.error);
       setTopupOpen(false);
       setAmount('');
-      await WebBrowser.openBrowserAsync(browserCheckoutUrl(payUrl));
+      setCardAmount(Math.round(som));
+      setCardClientSecret(payment.clientSecret);
+      setCardOpen(true);
     } catch (e) {
       Alert.alert('Xatolik', e instanceof Error ? e.message : 'Toʻlovni yaratib boʻlmadi.');
     } finally {
@@ -363,22 +364,34 @@ export default function Profile() {
               style={StyleSheet.absoluteFill}
             />
             <View className="absolute -right-12 -top-10 h-32 w-32 rounded-full" style={{ backgroundColor: BRAND_BLUE + '18' }} />
-            <View className="flex-row items-center justify-between">
-              <View>
+            <View
+              className="items-start justify-between"
+              style={{
+                flexDirection: compactBalanceCard ? 'column' : 'row',
+                gap: compactBalanceCard ? 12 : 8,
+              }}
+            >
+              <View className="min-w-0" style={{ flex: compactBalanceCard ? undefined : 1 }}>
                 <AppText className="text-xs font-semibold uppercase tracking-[1.4px] text-[#64748B]">Kabinet</AppText>
                 <AppText className="mt-1 font-bold text-lg text-[#0F172A]">Halolmi hisobi</AppText>
-                <AppText className="mt-1 font-display text-4xl text-[#0F172A]">{fmtSom(user?.balance ?? 0)}</AppText>
-                {orderId ? (
-                  <AppText className="mt-0.5 text-xs" style={{ color: BRAND_BLUE }}>Toʻlov kutilmoqda...</AppText>
-                ) : null}
+                <View className="mt-1 flex-row flex-wrap items-baseline">
+                  <AppText className="font-display text-4xl text-[#0F172A]">
+                    {fmtNumber(user?.balance ?? 0)}
+                  </AppText>
+                  <AppText className="ml-1.5 font-display text-2xl text-[#0F172A]">soʻm</AppText>
+                </View>
               </View>
               <Pressable
                 onPress={() => setTopupOpen(true)}
                 className="h-12 flex-row items-center justify-center rounded-2xl px-4 active:opacity-80"
-                style={{ backgroundColor: BRAND_BLUE }}
+                style={{
+                  alignSelf: compactBalanceCard ? 'stretch' : 'flex-start',
+                  backgroundColor: BRAND_BLUE,
+                  minWidth: compactBalanceCard ? undefined : 112,
+                }}
               >
                 <Ionicons name="add" size={18} color="#fff" />
-                <AppText className="ml-1 font-bold text-base text-white">To'ldirish</AppText>
+                <AppText className="ml-1 font-bold text-base text-white" numberOfLines={1}>To'ldirish</AppText>
               </Pressable>
             </View>
             <View className="my-4 h-px bg-white/70" />
@@ -407,6 +420,21 @@ export default function Profile() {
               </View>
             </View>
           </View>
+
+          {/* Jamg'arma shortcut */}
+          <Pressable
+            onPress={() => router.push('/jamgarma')}
+            className="mx-4 mt-3 flex-row items-center rounded-3xl border border-[#DCE9FF] bg-[#EFF6FF] px-4 py-4 active:opacity-80"
+          >
+            <View className="h-12 w-12 items-center justify-center rounded-2xl bg-white">
+              <AppText className="text-2xl">🐑</AppText>
+            </View>
+            <View className="ml-3 flex-1">
+              <AppText className="font-bold text-base text-[#0F172A]">Halolmi Jamg‘arma</AppText>
+              <AppText className="mt-0.5 text-sm text-[#64748B]">Hayvon uchun oz-ozdan yig‘ing</AppText>
+            </View>
+            <Ionicons name="chevron-forward" size={21} color={BRAND_BLUE} />
+          </Pressable>
 
           {/* Verified seller: Telegram + phone match */}
           {!isVerified ? (
@@ -456,7 +484,7 @@ export default function Profile() {
           </View>
           ) : null}
 
-          {reels.length > 0 && (
+          {runtime.supportsReels && reels.length > 0 && (
             <View className="mt-5">
               <View className="mb-2 flex-row items-center justify-between px-4">
                 <AppText className="font-bold text-lg text-foreground">Mening videolarim</AppText>
@@ -670,6 +698,7 @@ export default function Profile() {
         </Modal>
 
         <Modal visible={newAccountOpen} transparent animationType="slide" onRequestClose={() => setNewAccountOpen(false)}>
+          <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <Pressable className="flex-1 bg-black/40" onPress={() => setNewAccountOpen(false)} />
           <View className="rounded-t-3xl bg-background px-5 pb-8 pt-5">
             <View className="mb-4 flex-row items-center justify-between">
@@ -730,10 +759,12 @@ export default function Profile() {
               )}
             </Pressable>
           </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* Top-up sheet */}
         <Modal visible={topupOpen} transparent animationType="slide" onRequestClose={() => setTopupOpen(false)}>
+          <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <Pressable className="flex-1 bg-black/40" onPress={() => setTopupOpen(false)} />
           <View className="rounded-t-3xl bg-background px-5 pb-8 pt-5">
             <View className="mb-4 flex-row items-center justify-between">
@@ -761,35 +792,18 @@ export default function Profile() {
             <TextInput
               value={amount}
               onChangeText={(t) => setAmount(t.replace(/[^0-9]/g, ''))}
-              placeholder="Boshqa summa (min 1 000)"
+              placeholder="Boshqa summa (min 10 000)"
               placeholderTextColor="#9ca3af"
               keyboardType="number-pad"
               className="mb-4 h-14 rounded-xl border px-4 text-lg text-foreground"
               style={{ borderColor: BRAND_BLUE, fontFamily: 'Inter-Regular' }}
             />
 
-            <View className="mb-1 flex-row flex-wrap justify-between">
-              {enabledPayments.map((p) => (
-                <Pressable
-                  key={p.id}
-                  onPress={() => startTopup(Number(amount), p.id)}
-                  disabled={busy || Number(amount) < 1000}
-                  className="mb-3 items-center justify-center rounded-2xl border border-border p-4 active:opacity-70"
-                  style={{ width: '48%', height: 96, opacity: busy || Number(amount) < 1000 ? 0.5 : 1 }}
-                >
-                  <View className="mb-2 rounded-lg px-3 py-1.5" style={{ backgroundColor: p.color }}>
-                    <AppText className="font-bold text-sm text-white">{p.label.split('/')[0]}</AppText>
-                  </View>
-                  <AppText className="text-sm text-foreground">{p.label}</AppText>
-                </Pressable>
-              ))}
-            </View>
-
             <Pressable
               onPress={() => startTopup(Number(amount))}
-              disabled={busy || Number(amount) < 1000}
-              className="hidden"
-              style={{ display: 'none' }}
+              disabled={busy || Number(amount) < 10_000}
+              className="h-14 items-center justify-center rounded-2xl"
+              style={{ backgroundColor: BRAND_BLUE, opacity: busy || Number(amount) < 10_000 ? 0.5 : 1 }}
             >
               {busy ? (
                 <ActivityIndicator color="#fff" />
@@ -806,10 +820,43 @@ export default function Profile() {
               </View>
             ) : null}
             <AppText className="mt-3 text-center text-xs text-muted">
-              Toʻlov inPAY orqali — Click, Payme yoki karta
+              Toʻlov Stripe karta orqali
             </AppText>
           </View>
+          </KeyboardAvoidingView>
         </Modal>
+        <Modal visible={nameOpen} transparent animationType="fade" onRequestClose={() => setNameOpen(false)}>
+          <KeyboardAvoidingView className="flex-1 items-center justify-center bg-black/40 px-5" behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+            <View className="w-full max-w-[390px] rounded-3xl bg-white p-5">
+              <View className="h-11 w-11 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_BLUE + '18' }}>
+                <Ionicons name="person-outline" size={22} color={BRAND_BLUE} />
+              </View>
+              <AppText className="mt-4 font-bold text-xl text-foreground">Ismingizni kiriting</AppText>
+              <AppText className="mt-1 text-sm leading-5 text-muted">Profilingizda haqiqiy ismingiz ko'rinadi.</AppText>
+              <TextInput
+                value={realName}
+                onChangeText={setRealName}
+                autoFocus
+                autoCapitalize="words"
+                placeholder="Masalan: Behzod Karimov"
+                placeholderTextColor="#94A3B8"
+                className="mt-4 h-14 rounded-2xl border px-4 text-base text-foreground"
+                style={{ borderColor: BRAND_BLUE, fontFamily: 'Inter-Regular' }}
+              />
+              <Pressable onPress={saveRealName} disabled={realName.trim().length < 2} className="mt-4 h-14 items-center justify-center rounded-2xl" style={{ backgroundColor: BRAND_BLUE, opacity: realName.trim().length < 2 ? 0.5 : 1 }}>
+                <AppText className="font-bold text-white">Saqlash</AppText>
+              </Pressable>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+        <StripeCardSheet
+          visible={cardOpen}
+          title="Hisobni to'ldirish"
+          amount={fmtSom(cardAmount)}
+          clientSecret={cardClientSecret}
+          onClose={() => { setCardOpen(false); setCardClientSecret(null); }}
+          onPaid={() => { setCardOpen(false); setCardClientSecret(null); Alert.alert("To'lov qabul qilindi", 'Balansingiz yangilandi.'); }}
+        />
       </SafeAreaView>
     </View>
   );

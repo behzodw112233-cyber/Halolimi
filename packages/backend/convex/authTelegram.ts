@@ -6,6 +6,20 @@ import { createForUser } from './notifications';
 // A login handshake is only valid for a few minutes.
 const SESSION_TTL_MS = 5 * 60 * 1000;
 
+function assertBotSecret(secret: string) {
+  const expected = process.env.TELEGRAM_AUTH_SECRET;
+  if (!expected || expected.length < 32) {
+    throw new Error('TELEGRAM_AUTH_SECRET sozlanmagan');
+  }
+  if (secret !== expected) throw new Error('Ruxsat berilmagan');
+}
+
+function assertFreshSession(createdAt: number) {
+  if (Date.now() - createdAt > SESSION_TTL_MS) {
+    throw new Error('Telegram kirish muddati tugagan');
+  }
+}
+
 /** Normalize any Telegram/user phone to the canonical +998XXXXXXXXX form. */
 function normalizePhone(raw: string): string {
   const digits = raw.replace(/\D/g, '');
@@ -14,10 +28,23 @@ function normalizePhone(raw: string): string {
 
 /** Find-or-create a user by phone (same identity rule as the app login). */
 async function getOrCreateUser(ctx: MutationCtx, phone: string, name?: string) {
-  const existing = await ctx.db
+  const matches = await ctx.db
     .query('users')
     .withIndex('by_phone', (q) => q.eq('phone', phone))
-    .first();
+    .collect();
+  let existing = matches[0];
+  if (matches.length > 1) {
+    for (const candidate of matches) {
+      const membership = await ctx.db
+        .query('accountMemberships')
+        .withIndex('by_account', (q) => q.eq('accountId', candidate._id))
+        .first();
+      if (!membership) {
+        existing = candidate;
+        break;
+      }
+    }
+  }
   if (existing) return existing._id;
   return ctx.db.insert('users', {
     name: name?.trim() || 'Foydalanuvchi',
@@ -91,20 +118,19 @@ async function markUserTelegramVerified(
 
 /** App: open a pending login handshake for a freshly generated token. */
 export const start = mutation({
-  args: { token: v.string(), userId: v.optional(v.id('users')) },
-  handler: async (ctx, { token, userId }) => {
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    if (token.length < 24 || token.length > 128) throw new Error("Noto'g'ri kirish tokeni");
     const existing = await ctx.db
       .query('authSessions')
       .withIndex('by_token', (q) => q.eq('token', token))
       .first();
     if (existing) {
-      if (userId && !existing.userId) await ctx.db.patch(existing._id, { userId });
       return;
     }
     await ctx.db.insert('authSessions', {
       token,
       status: 'pending',
-      userId,
       createdAt: Date.now(),
     });
   },
@@ -118,14 +144,13 @@ export const status = query({
       .query('authSessions')
       .withIndex('by_token', (q) => q.eq('token', token))
       .first();
-    if (!s) return { status: 'pending' as const, userId: null };
-    if (s.status === 'verified' && s.userId) {
-      return { status: 'verified' as const, userId: s.userId };
-    }
+    if (!s) return { status: 'pending' as const };
     if (Date.now() - s.createdAt > SESSION_TTL_MS) {
-      return { status: 'expired' as const, userId: null };
+      return { status: 'expired' as const };
     }
-    return { status: 'pending' as const, userId: null };
+    if (s.consumedAt) return { status: 'consumed' as const };
+    if (s.status === 'verified' && s.userId) return { status: 'verified' as const };
+    return { status: 'pending' as const };
   },
 });
 
@@ -134,55 +159,79 @@ export const status = query({
  * verified and attach the resolved user. Creates the row if the app's `start`
  * hasn't landed yet, so ordering never matters.
  */
-export const verify = mutation({
-  args: {
-    token: v.string(),
-    phone: v.string(),
-    name: v.optional(v.string()),
-    telegramId: v.optional(v.string()),
-  },
-  handler: async (ctx, { token, phone, name, telegramId }) => {
-    if (!telegramId) {
-      throw new Error('Telegram ID majburiy');
-    }
-    const existing = await ctx.db
+export const claim = mutation({
+  args: { token: v.string(), telegramId: v.string(), botSecret: v.string() },
+  handler: async (ctx, { token, telegramId, botSecret }) => {
+    assertBotSecret(botSecret);
+    const session = await ctx.db
       .query('authSessions')
       .withIndex('by_token', (q) => q.eq('token', token))
-      .first();
-    const userId = existing?.userId
-      ? await markUserTelegramVerified(ctx, {
-          userId: existing.userId,
-          phone,
-          name,
-          telegramId,
-        })
-      : await markTelegramVerified(ctx, { phone, name, telegramId });
-    if (existing) {
-      await ctx.db.patch(existing._id, { status: 'verified', userId });
-    } else {
-      await ctx.db.insert('authSessions', {
-        token,
-        status: 'verified',
-        userId,
-        createdAt: Date.now(),
-      });
+      .unique();
+    if (!session || session.status !== 'pending' || session.consumedAt) {
+      throw new Error('Telegram kirish sessiyasi topilmadi');
     }
+    assertFreshSession(session.createdAt);
+    if (session.telegramId && session.telegramId !== telegramId) {
+      throw new Error("Telegram kirish sessiyasi boshqa hisobga bog'langan");
+    }
+    await ctx.db.patch(session._id, { telegramId });
+  },
+});
+
+export const verifyPending = mutation({
+  args: {
+    phone: v.string(),
+    name: v.optional(v.string()),
+    telegramId: v.string(),
+    botSecret: v.string(),
+  },
+  handler: async (ctx, { phone, name, telegramId, botSecret }) => {
+    assertBotSecret(botSecret);
+    const session = await ctx.db
+      .query('authSessions')
+      .withIndex('by_telegram_created', (q) => q.eq('telegramId', telegramId))
+      .order('desc')
+      .first();
+    if (!session || session.status !== 'pending' || session.consumedAt) return false;
+    if (Date.now() - session.createdAt > SESSION_TTL_MS) return false;
+    const userId = await markTelegramVerified(ctx, { phone, name, telegramId });
+    await ctx.db.patch(session._id, { status: 'verified', userId, verifiedAt: Date.now() });
     return true;
+  },
+});
+
+export const consume = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const session = await ctx.db
+      .query('authSessions')
+      .withIndex('by_token', (q) => q.eq('token', token))
+      .unique();
+    if (!session) throw new Error('Telegram kirish sessiyasi topilmadi');
+    assertFreshSession(session.createdAt);
+    if (session.consumedAt) throw new Error('Telegram kirish sessiyasi ishlatilgan');
+    if (session.status !== 'verified' || !session.userId) {
+      throw new Error('Telegram kirish hali tasdiqlanmagan');
+    }
+    await ctx.db.patch(session._id, { consumedAt: Date.now() });
+    return session.userId;
   },
 });
 
 /** Bot: link the Telegram account to the same phone-based Convex user identity. */
 export const linkBot = mutation({
-  args: { telegramId: v.string(), phone: v.string(), name: v.optional(v.string()) },
-  handler: async (ctx, { telegramId, phone, name }) => {
+  args: { telegramId: v.string(), phone: v.string(), name: v.optional(v.string()), botSecret: v.string() },
+  handler: async (ctx, { telegramId, phone, name, botSecret }) => {
+    assertBotSecret(botSecret);
     return await markTelegramVerified(ctx, { phone, name, telegramId });
   },
 });
 
 /** Bot: resolve a Telegram user into the linked Convex profile + live counters. */
 export const botProfile = query({
-  args: { telegramId: v.string() },
-  handler: async (ctx, { telegramId }) => {
+  args: { telegramId: v.string(), botSecret: v.string() },
+  handler: async (ctx, { telegramId, botSecret }) => {
+    assertBotSecret(botSecret);
     const user = await ctx.db
       .query('users')
       .withIndex('by_telegram', (q) => q.eq('telegramId', telegramId))

@@ -49,8 +49,6 @@ interface SessionData {
   };
   sell?: SellDraft;
   awaiting?: 'price_filter';
-  /** Pending app-login handshake token (set when opened via t.me/bot?start=<token>). */
-  authToken?: string;
   /** Action to continue after the user shares their Telegram contact. */
   pendingAction?: 'save' | 'saved' | 'kabinet' | 'sell';
 }
@@ -71,7 +69,7 @@ type BotListing = Listing & {
 
 const PAGE_SIZE = 5;
 
-export function createBot(token: string) {
+export function createBot(token: string, authSecret: string) {
   const bot = new Bot<MyContext>(token);
 
   bot.use(
@@ -132,7 +130,9 @@ export function createBot(token: string) {
 
   async function linkedProfile(ctx: MyContext) {
     const id = telegramId(ctx);
-    return id ? await convex.query(api.authTelegram.botProfile, { telegramId: id }) : null;
+    return id
+      ? await convex.query(api.authTelegram.botProfile, { telegramId: id, botSecret: authSecret })
+      : null;
   }
 
   async function requestLink(ctx: MyContext, action: SessionData['pendingAction']) {
@@ -295,13 +295,23 @@ export function createBot(token: string) {
       return;
     }
     if (payload) {
-      ctx.session.authToken = payload;
-      await ctx.reply(
-        '🔐 <b>Halolmi ilovasiga kirish</b>\n\n' +
-          'Tasdiqlash uchun o‘zingizning telefon raqamingizni ulashing 👇\n' +
-          '<i>Telegram raqamingiz tasdiqlangan sotuvchi belgisini beradi.</i>',
-        { parse_mode: 'HTML', reply_markup: phoneRequestKeyboard() }
-      );
+      const tgId = telegramId(ctx);
+      try {
+        if (!tgId) throw new Error('Telegram ID topilmadi');
+        await convex.mutation(api.authTelegram.claim, {
+          token: payload,
+          telegramId: tgId,
+          botSecret: authSecret,
+        });
+        await ctx.reply(
+          '🔐 <b>Halolmi ilovasiga kirish</b>\n\n' +
+            'Tasdiqlash uchun o‘zingizning telefon raqamingizni ulashing 👇\n' +
+            '<i>Telegram raqamingiz tasdiqlangan sotuvchi belgisini beradi.</i>',
+          { parse_mode: 'HTML', reply_markup: phoneRequestKeyboard() }
+        );
+      } catch {
+        await ctx.reply('❌ Kirish havolasi eskirgan. Halolmi ilovasida qaytadan urinib ko‘ring.');
+      }
       return;
     }
     await ctx.reply(
@@ -788,17 +798,17 @@ export function createBot(token: string) {
       return;
     }
 
-    // App-login handshake takes priority over the sell wizard.
-    if (ctx.session.authToken) {
-      const token = ctx.session.authToken;
-      ctx.session.authToken = undefined;
+    // Convex-backed handshakes survive bot restarts and webhook instance changes.
+    const tgId = telegramId(ctx);
+    if (tgId) {
       try {
-        await convex.mutation(api.authTelegram.verify, {
-          token,
+        const verified = await convex.mutation(api.authTelegram.verifyPending, {
           phone: contact.phone_number,
           name: ctx.from?.first_name,
-          telegramId: telegramId(ctx) ?? undefined,
+          telegramId: tgId,
+          botSecret: authSecret,
         });
+        if (!verified) throw new Error('NO_PENDING_LOGIN');
         await ctx.reply(
           '✅ <b>Tayyor!</b>\n\n' +
             'Halolmi ilovasiga qayting — tizimga kirdingiz.\n' +
@@ -806,20 +816,23 @@ export function createBot(token: string) {
           { parse_mode: 'HTML', reply_markup: { remove_keyboard: true } }
         );
         await ctx.reply('🏠 Asosiy menyu', { reply_markup: mainMenuKeyboard() });
-      } catch {
-        await ctx.reply('❌ Kirishda xatolik. Ilovada qaytadan urinib koʻring.', {
-          reply_markup: { remove_keyboard: true },
-        });
+        return;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('NO_PENDING_LOGIN')) {
+          await ctx.reply('❌ Kirishda xatolik. Ilovada qaytadan urinib ko‘ring.', {
+            reply_markup: { remove_keyboard: true },
+          });
+          return;
+        }
       }
-      return;
     }
 
-    const tgId = telegramId(ctx);
     if (tgId) {
       const userId = await convex.mutation(api.authTelegram.linkBot, {
         telegramId: tgId,
         phone: contact.phone_number,
         name: ctx.from?.first_name,
+        botSecret: authSecret,
       });
       const action = ctx.session.pendingAction;
       ctx.session.pendingAction = undefined;
@@ -843,7 +856,10 @@ export function createBot(token: string) {
       } else if (action === 'sell') {
         await startSell(ctx);
       } else if (action === 'kabinet') {
-        const profile = await convex.query(api.authTelegram.botProfile, { telegramId: tgId });
+        const profile = await convex.query(api.authTelegram.botProfile, {
+          telegramId: tgId,
+          botSecret: authSecret,
+        });
         await ctx.reply(
           profile
             ? `👤 <b>Kabinet</b>\n\nSalom, ${profile.name}!\n\n` +

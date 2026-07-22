@@ -62,14 +62,15 @@ function cloudflareFrameUrl(uid: string, playing: boolean) {
 }
 
 /**
- * expo-video swaps/releases the native player whenever `useVideoPlayer`'s
- * source argument changes (as it does here when a slide scrolls out of the
- * "near" window). A pending effect cleanup can still reference the just-
- * released player, so play/pause calls are best-effort.
+ * Safe play/pause that catches both sync errors and async promise rejections
+ * (e.g. AbortError from HTML5 video's play() being interrupted by pause()).
  */
-function safeVideoCall(fn: () => void) {
+function safeVideoCall(fn: () => void | Promise<void>) {
   try {
-    fn();
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      result.catch(() => {}); // Suppress AbortError and similar promise rejections
+    }
   } catch {
     // player was already released — nothing to do
   }
@@ -108,6 +109,10 @@ function ReelsContent() {
     [reels, start]
   );
 
+  const viewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 72 }), []);
+
+  const keyExtractor = useCallback((item: Reel) => item._id, []);
+
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: { index: number | null }[] }) => {
       const first = viewableItems.find((item) => item.index !== null);
@@ -115,6 +120,59 @@ function ReelsContent() {
     },
     []
   );
+
+  // Memoize callbacks so ReelSlide (memo-wrapped) doesn't re-render on every parent render.
+  // setCommentsFor is a stable useState setter — ReelSlide calls it with its own reel prop.
+  const onBack = useCallback(
+    () => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home')),
+    [router]
+  );
+  /* setCommentsFor is a React.Dispatch from useState — always stable, no useCallback needed */
+
+  // ── Pooled player buffer ──
+  // 3 permanent native players. Sources swap on scroll; player objects NEVER die.
+  // Prev/current/next map to slots 0/1/2 around activeIndex.
+  // NOTE: On web, pooled players are DISABLED because expo-video's VideoView
+  // binds a player to an HTMLVideoElement. When multiple VideoViews share the
+  // same player, they compete for the same underlying element, causing
+  // AbortError (play() interrupted by pause()). Web reels get per-instance
+  // players via ReelSlide's useVideoPlayer fallback.
+  const usePool = Platform.OS !== 'web';
+  const initPlayer = useCallback((p: { loop: boolean }) => { p.loop = true; }, []);
+  const playerPrev = useVideoPlayer('', initPlayer);
+  const playerCurrent = useVideoPlayer('', initPlayer);
+  const playerNext = useVideoPlayer('', initPlayer);
+
+  // Track last-assigned URL per slot so we don't reload the same video.
+  const lastUrls = useRef<(string | null)[]>([null, null, null]);
+
+  // Swap sources on activeIndex change — keeps VideoView surfaces alive.
+  // Only active when usePool is true (native only).
+  useEffect(() => {
+    if (!usePool) return;
+    const idx = activeIndex;
+    const urls = [
+      idx > 0 ? reels[idx - 1]?.videoUrl ?? null : null,
+      reels[idx]?.videoUrl ?? null,
+      idx < reels.length - 1 ? reels[idx + 1]?.videoUrl ?? null : null,
+    ];
+    const slotPlayers = [playerPrev, playerCurrent, playerNext];
+    urls.forEach((url, i) => {
+      if (url && url !== lastUrls.current[i]) {
+        lastUrls.current[i] = url;
+        try {
+          (slotPlayers[i] as any).source = cacheableSource(url);
+        } catch {
+          // expo-video source setter can throw on some builds — safe to ignore
+        }
+      }
+    });
+    safeVideoCall(() => playerPrev.pause());
+    safeVideoCall(() => playerNext.pause());
+  }, [activeIndex, reels, playerPrev, playerCurrent, playerNext, usePool]);
+
+  // Pass pool state down so ReelSlide knows whether to use pooled or per-instance player.
+  const playerAssignments = useMemo(() => ({ usePool, playerPrev, playerCurrent, playerNext }), [usePool, playerPrev, playerCurrent, playerNext]);
 
   useEffect(() => {
     const prefetch = (Image as unknown as { prefetch?: (urls: string | string[]) => Promise<unknown> }).prefetch;
@@ -154,28 +212,38 @@ function ReelsContent() {
     <View className="flex-1 bg-black">
       <FlashList
         data={reels}
-        keyExtractor={(item) => item._id}
+        keyExtractor={keyExtractor}
         pagingEnabled
         showsVerticalScrollIndicator={false}
         initialScrollIndex={startIndex >= 0 ? startIndex : undefined}
-        getItemType={() => 'reel'}
+        drawDistance={height * 3}
         onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={{ itemVisiblePercentThreshold: 72 }}
-        renderItem={({ item, index }) => (
-          <ReelSlide
-            reel={item}
-            active={index === activeIndex}
-            near={index >= activeIndex - 1 && index <= activeIndex + 2}
-            height={height}
-            userId={userId}
-            userName={user?.name ?? user?.phone ?? 'Foydalanuvchi'}
-            onBack={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/home'))}
-            onComments={() => setCommentsFor(item)}
-          />
-        )}
+        viewabilityConfig={viewabilityConfig}
+        renderItem={({ item, index }) => {
+          const isCf = shouldUseCloudflareFrame(item);
+          // On native: map pooled players to the 3 nearest reel slots.
+          // On web: pooled players are disabled (see above) so all reels
+          // use per-instance players (player is undefined → fallback).
+          let player: typeof playerCurrent | undefined;
+          if (!isCf && playerAssignments.usePool) {
+            if (index === activeIndex) player = playerAssignments.playerCurrent;
+            else if (index === activeIndex - 1) player = playerAssignments.playerPrev;
+            else if (index === activeIndex + 1) player = playerAssignments.playerNext;
+          }
+          return (
+            <ReelSlide
+              reel={item}
+              active={index === activeIndex}
+              height={height}
+              userId={userId}
+              userName={user?.name ?? user?.phone ?? 'Foydalanuvchi'}
+              onBack={onBack}
+              onComments={setCommentsFor}
+              player={player}
+            />
+          );
+        }}
       />
-      <VideoWarmup url={reels[activeIndex + 1]?.videoUrl} />
-      <VideoWarmup url={reels[activeIndex + 2]?.videoUrl} />
       <CommentsSheet
         reel={commentsFor}
         userId={userId}
@@ -227,21 +295,6 @@ function ReelsLoadingSkeleton({ onBack }: { onBack: () => void }) {
   );
 }
 
-function VideoWarmup({ url }: { url?: string | null }) {
-  const warmupUrl = Platform.OS === 'web' && url?.includes('.m3u8') ? null : url;
-  const player = useVideoPlayer(warmupUrl ? cacheableSource(warmupUrl) : '', (p) => {
-    (p as unknown as { muted?: boolean }).muted = true;
-    p.loop = false;
-  });
-
-  useEffect(() => {
-    if (!warmupUrl) return;
-    safeVideoCall(() => player.pause());
-  }, [player, warmupUrl]);
-
-  return null;
-}
-
 function CloudflareStreamFrame({
   uid,
   playing,
@@ -267,24 +320,26 @@ function CloudflareStreamFrame({
   });
 }
 
-function ReelSlide({
+const ReelSlide = React.memo(function ReelSlide({
   reel,
   active,
-  near,
   height,
   userId,
   userName,
   onBack,
   onComments,
+  player,
 }: {
   reel: Reel;
   active: boolean;
-  near: boolean;
   height: number;
   userId: Id<'users'> | null;
   userName: string;
   onBack: () => void;
-  onComments: () => void;
+  /** Stable state setter — ReelSlide passes its own `reel` prop when called. */
+  onComments: (reel: Reel) => void;
+  /** Pooled player from ReelsContent — undefined for Cloudflare reels. */
+  player?: any;
 }) {
   const router = useRouter();
   const { top, bottom } = useSafeAreaInsets();
@@ -300,9 +355,13 @@ function ReelSlide({
   const heartOpacity = useRef(new Animated.Value(0)).current;
   const useCloudflareFrame = shouldUseCloudflareFrame(reel);
 
-  const player = useVideoPlayer(near && !useCloudflareFrame ? cacheableSource(reel.videoUrl) : '', (p) => {
-    p.loop = true;
-  });
+  // Fallback player for reels outside the 3-slot pool (edge case only).
+  const fallbackPlayer = useVideoPlayer(
+    !player && !useCloudflareFrame && reel.videoUrl ? cacheableSource(reel.videoUrl) : '',
+    (p: any) => { p.loop = true; }
+  );
+  // Use the pooled player when available; fall back to the instance player otherwise.
+  const activePlayer: any = player ?? fallbackPlayer;
 
   const toggleLike = useMutation(api.reels.toggleLike);
   const toggleSave = useMutation(api.reels.toggleSave);
@@ -316,14 +375,14 @@ function ReelSlide({
 
   useEffect(() => {
     if (active && !manualPaused) {
-      safeVideoCall(() => player.play());
+      safeVideoCall(() => activePlayer.play());
       if (!viewRecorded.current) {
         viewRecorded.current = true;
         recordView({ reelId: reel._id }).catch(() => {});
       }
       watchStartedAt.current = Date.now();
     } else {
-      safeVideoCall(() => player.pause());
+      safeVideoCall(() => activePlayer.pause());
       if (watchStartedAt.current) {
         const ms = Date.now() - watchStartedAt.current;
         watchStartedAt.current = null;
@@ -332,10 +391,11 @@ function ReelSlide({
         if (ms > 800) recordWatch({ reelId: reel._id, ms, durationMs, replayed }).catch(() => {});
       }
     }
-    return () => {
-      safeVideoCall(() => player.pause());
-    };
-  }, [active, manualPaused, player, recordView, recordWatch, reel._id, reel.duration]);
+    // NOTE: No cleanup pause — pooled players stay alive across re-mounts.
+    // Calling pause() here races with VideoView's internal play() on web,
+    // producing an AbortError. With pooled players the next ReelSlide that
+    // receives this player handles play/pause correctly.
+  }, [active, manualPaused, activePlayer, recordView, recordWatch, reel._id, reel.duration]);
 
   useEffect(() => {
     if (!active || manualPaused || !reel.videoUrl) {
@@ -504,7 +564,7 @@ function ReelSlide({
           <CloudflareStreamFrame uid={reel.providerVideoId} playing={active && !manualPaused} />
         ) : (
           <VideoView
-            player={player}
+            player={activePlayer}
             style={{ position: 'absolute', width: '100%', height: '100%' }}
             contentFit="cover"
             nativeControls={false}
@@ -563,7 +623,7 @@ function ReelSlide({
           active={reel.viewerLiked}
           onPress={onLike}
         />
-        <RailButton icon="chatbubble-outline" label={compact(reel.comments)} onPress={onComments} />
+        <RailButton icon="chatbubble-outline" label={compact(reel.comments)} onPress={() => onComments(reel)} />
         <RailButton
           icon={reel.viewerSaved ? 'bookmark' : 'bookmark-outline'}
           label={compact(reel.saves)}
@@ -702,7 +762,7 @@ function ReelSlide({
       />
     </View>
   );
-}
+});
 
 function TrustBadge({ icon, label }: { icon: keyof typeof Ionicons.glyphMap; label: string }) {
   return (

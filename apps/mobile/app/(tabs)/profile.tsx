@@ -87,6 +87,7 @@ export default function Profile() {
   const createStripeTopupPayment = useAction(api.jamgarma.createStripeTopupPayment);
   const updateProfile = useMutation(api.users.updateProfile);
   const startTelegramSession = useMutation(api.authTelegram.start);
+  const consumeTelegramSession = useMutation(api.authTelegram.consume);
   const createLinkedAccount = useMutation(api.users.createLinkedAccount);
   const [topupOpen, setTopupOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -129,15 +130,31 @@ export default function Profile() {
   };
 
   useEffect(() => {
-    if (verifyStatus?.status === 'verified' && verifyStatus.userId) {
-      adoptSession(verifyStatus.userId as Id<'users'>);
-      setTimeout(() => setVerifyToken(null), 0);
-      Alert.alert('Tasdiqlandi', 'Endi siz tasdiqlangan sotuvchisiz.');
+    if (verifyToken && verifyStatus?.status === 'verified') {
+      const token = verifyToken;
+      setVerifyToken(null);
+      consumeTelegramSession({ token })
+        .then((verifiedUserId) => adoptSession(verifiedUserId as Id<'users'>))
+        .then(() => {
+          Alert.alert('Tasdiqlandi', 'Endi siz tasdiqlangan sotuvchisiz.');
+        })
+        .catch(() => {
+          Alert.alert('Xatolik', 'Telegram tasdiqlash sessiyasi ishlamadi.');
+        });
     } else if (verifyStatus?.status === 'expired') {
       setTimeout(() => setVerifyToken(null), 0);
       Alert.alert('Muddati tugadi', 'Telegram tasdiqlash muddati tugadi. Qayta urinib koÊ»ring.');
     }
-  }, [verifyStatus, adoptSession]);
+  }, [verifyStatus, verifyToken, consumeTelegramSession, adoptSession]);
+
+  useEffect(() => {
+    if (!verifyToken) return;
+    const timer = setTimeout(() => {
+      setVerifyToken(null);
+      Alert.alert('Muddati tugadi', "Telegram tasdiqlash muddati tugadi. Qayta urinib ko'ring.");
+    }, 5 * 60 * 1000);
+    return () => clearTimeout(timer);
+  }, [verifyToken]);
 
   const startTopup = async (som: number) => {
     if (!userId || !Number.isFinite(som) || som < 10_000 || busy) return;
@@ -213,7 +230,7 @@ export default function Profile() {
     const token = makeToken();
     setVerifyBusy(true);
     try {
-      await startTelegramSession({ token, userId });
+      await startTelegramSession({ token });
       setVerifyToken(token);
       await Linking.openURL(`https://t.me/${BOT_USERNAME}?start=${token}`);
       setVerifyBusy(false);

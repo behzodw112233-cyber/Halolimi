@@ -11,12 +11,17 @@ import { createBot } from './bot.js';
  */
 
 const token = process.env.BOT_TOKEN;
+const authSecret = process.env.TELEGRAM_AUTH_SECRET;
 if (!token) {
   console.error('❌ BOT_TOKEN topilmadi. Env da BOT_TOKEN ni belgilang.');
   process.exit(1);
 }
+if (!authSecret || authSecret.length < 32) {
+  console.error('TELEGRAM_AUTH_SECRET topilmadi yoki juda qisqa.');
+  process.exit(1);
+}
 
-const bot = createBot(token);
+const bot = createBot(token, authSecret);
 const PORT = Number(process.env.PORT ?? 8080);
 const SECRET = process.env.WEBHOOK_SECRET ?? 'halolmi_secret';
 const WEBHOOK_URL = process.env.WEBHOOK_URL?.trim();

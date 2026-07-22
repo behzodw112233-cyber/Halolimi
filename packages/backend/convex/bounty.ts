@@ -228,6 +228,17 @@ export const mySubmissions = query({
   },
 });
 
+export const listSubmissions = query({
+  args: {},
+  handler: async (ctx) => {
+    const submissions = await ctx.db.query('bountySubmissions').order('desc').take(100);
+    return submissions.map((submission) => ({
+      ...submission,
+      campaign: campaignFor(submission.campaignSlug),
+    }));
+  },
+});
+
 export const submitLink = mutation({
   args: {
     campaignSlug: v.string(),
@@ -434,6 +445,42 @@ export const adminSetStatus = internalMutation({
       status: args.status,
       qualityMultiplier,
       originalityMultiplier,
+      qualifiedViewCount: qualifiedViews,
+      rewardCents,
+      paidAt: args.status === 'paid' ? now : undefined,
+      reviewedAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const setSubmissionStatus = mutation({
+  args: {
+    id: v.id('bountySubmissions'),
+    status: bountySubmissionStatus,
+    qualityMultiplier: v.optional(v.number()),
+    originalityMultiplier: v.optional(v.number()),
+    viewCount: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const submission = await ctx.db.get(args.id);
+    if (!submission) throw new Error('Submission not found');
+    const qualityMultiplier = safeMultiplier(args.qualityMultiplier ?? submission.qualityMultiplier);
+    const originalityMultiplier = safeMultiplier(args.originalityMultiplier ?? submission.originalityMultiplier);
+    const viewCount = nonNegativeInteger(args.viewCount ?? submission.viewCount, MAX_VIEW_COUNT);
+    const now = Date.now();
+    const { qualifiedViews, rewardCents } = rewardFor({
+      activations: submission.activationCount,
+      installs: submission.installCount,
+      qualityMultiplier,
+      originalityMultiplier,
+      views: viewCount,
+    });
+    await ctx.db.patch(args.id, {
+      status: args.status,
+      qualityMultiplier,
+      originalityMultiplier,
+      viewCount,
       qualifiedViewCount: qualifiedViews,
       rewardCents,
       paidAt: args.status === 'paid' ? now : undefined,

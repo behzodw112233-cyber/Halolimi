@@ -5,12 +5,17 @@ import { createBot } from './bot.js';
 // Unlike the webhook server (index.ts), this needs no public URL / ngrok —
 // the bot connects out to Telegram and pulls updates. Just run it and it works.
 const token = process.env.BOT_TOKEN;
+const authSecret = process.env.TELEGRAM_AUTH_SECRET;
 if (!token) {
   console.error('❌ BOT_TOKEN topilmadi. apps/bot/.env faylida BOT_TOKEN ni belgilang (.env.example ga qarang).');
   process.exit(1);
 }
+if (!authSecret || authSecret.length < 32) {
+  console.error('TELEGRAM_AUTH_SECRET topilmadi yoki juda qisqa.');
+  process.exit(1);
+}
 
-const bot = createBot(token);
+const bot = createBot(token, authSecret);
 
 async function main() {
   await bot.init();

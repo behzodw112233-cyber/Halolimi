@@ -1,0 +1,232 @@
+{"kind":"deck","id":"pr/xvkf08","name":"Deck"}
+{"kind":"layout","layoutId":"558b9443-e955-4d60-819f-60d99a59746b","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"106db3e9-c4d8-4ef6-9ced-d4331af1d623","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/4ozo2g","slide":1,"title":"Halolmia","textShapes":6}
+{"kind":"shape","id":"sh/pozeh832","slide":1,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/2l8f6t4b","slide":1,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/xsjy583y","slide":1,"text":"Halolmia","textPreview":"Halolmia","textChars":8,"textLines":1,"bbox":[72,94,560,80]}
+{"kind":"textbox","id":"sh/apsfad4n","slide":1,"text":"A trusted livestock marketplace with a halal earning engine built in.","textPreview":"A trusted livestock marketplace with a halal earning engine built in.","textChars":69,"textLines":1,"bbox":[76,190,670,106]}
+{"kind":"shape","id":"sh/bq1g3ils","slide":1,"bbox":[78,332,170,40]}
+{"kind":"textbox","id":"sh/kfaxgnmp","slide":1,"text":"Investor pitch","textPreview":"Investor pitch","textChars":14,"textLines":1,"bbox":[94,340,138,24]}
+{"kind":"shape","id":"sh/lgjy9s3a","slide":1,"bbox":[266,332,190,40]}
+{"kind":"textbox","id":"sh/tg36povq","slide":1,"text":"Uzbekistan-first","textPreview":"Uzbekistan-first","textChars":16,"textLines":1,"bbox":[282,340,158,24]}
+{"kind":"textbox","id":"sh/sfupgju5","slide":1,"text":"Marketplace • Trust layer • Payments • Creator rewards • Savings • Farmer financing","textPreview":"Marketplace • Trust layer • Payments • Creator rewards • Savings • Farmer financing","textChars":83,"textLines":1,"bbox":[76,618,880,34]}
+{"kind":"textbox","id":"sh/re1onedk","slide":1,"text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"image","id":"im/2dg3mlg3","slide":1,"name":"","geometry":"roundRect","alt":"cattle.png","bbox":[806,120,330,330]}
+{"kind":"image","id":"im/x4rm10fq","slide":1,"name":"","geometry":"roundRect","alt":"sheep.png","bbox":[910,360,220,180]}
+{"kind":"notes","id":"nt/4ozo2g","slide":1,"text":""}
+{"kind":"slide","id":"sl/4os8mz","slide":2,"title":"HALOLMIA","textShapes":10}
+{"kind":"shape","id":"sh/h832h8b6","slide":2,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/u5cj6dsf","slide":2,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/f6lkfit0","slide":2,"text":"HALOLMIA","textPreview":"HALOLMIA","textChars":8,"textLines":1,"bbox":[72,42,180,24]}
+{"kind":"textbox","id":"sh/4be1cnah","slide":2,"text":"The old livestock market is too important to stay this messy.","textPreview":"The old livestock market is too important to stay this messy.","textChars":61,"textLines":1,"bbox":[72,92,820,112]}
+{"kind":"textbox","id":"sh/pcn2lsb2","slide":2,"text":"High-value animal trades still depend on scattered chats, weak trust, and manual follow-up.","textPreview":"High-value animal trades still depend on scattered chats, weak trust, and manual follow-up.","textChars":91,"textLines":1,"bbox":[72,208,760,68]}
+{"kind":"shape","id":"sh/29cjadsr","slide":2,"bbox":[72,336,338,190]}
+{"kind":"textbox","id":"sh/3a5kjitc","slide":2,"text":"Fragmented demand","textPreview":"Fragmented demand","textChars":17,"textLines":1,"bbox":[96,362,285,42]}
+{"kind":"textbox","id":"sh/kfa10jad","slide":2,"text":"Listings live across groups, calls, and informal networks.","textPreview":"Listings live across groups, calls, and informal networks.","textChars":58,"textLines":1,"bbox":[96,422,286,70]}
+{"kind":"shape","id":"sh/5gji9oby","slide":2,"bbox":[452,336,338,190]}
+{"kind":"textbox","id":"sh/94fal8fq","slide":2,"text":"Trust gap","textPreview":"Trust gap","textChars":9,"textLines":1,"bbox":[476,362,285,42]}
+{"kind":"textbox","id":"sh/o369c3e5","slide":2,"text":"Buyers need proof: seller identity, reviews, photos, location, and history.","textPreview":"Buyers need proof: seller identity, reviews, photos, location, and history.","textChars":75,"textLines":1,"bbox":[476,422,286,70]}
+{"kind":"shape","id":"sh/n2xsjyxk","slide":2,"bbox":[832,336,338,190]}
+{"kind":"textbox","id":"sh/m1oratwf","slide":2,"text":"No earning layer","textPreview":"No earning layer","textChars":16,"textLines":1,"bbox":[856,362,285,42]}
+{"kind":"textbox","id":"sh/x8zap8f2","slide":2,"text":"People can trade animals, but cannot systematically earn from the marketplace they help grow.","textPreview":"People can trade animals, but cannot systematically earn from the marketplace they help grow.","textChars":93,"textLines":1,"bbox":[856,422,286,70]}
+{"kind":"textbox","id":"sh/w769gneh","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"notes","id":"nt/4os8mz","slide":2,"text":""}
+{"kind":"slide","id":"sl/ozqrbp","slide":3,"title":"HALOLMIA","textShapes":12}
+{"kind":"shape","id":"sh/i18769k3","slide":3,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/54zq1o3u","slide":3,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/43qp8j29","slide":3,"text":"HALOLMIA","textPreview":"HALOLMIA","textChars":8,"textLines":1,"bbox":[72,42,180,24]}
+{"kind":"textbox","id":"sh/r6h83el0","slide":3,"text":"Halolmia is already more than a listings app.","textPreview":"Halolmia is already more than a listings app.","textChars":45,"textLines":1,"bbox":[72,92,820,112]}
+{"kind":"textbox","id":"sh/6587a9kf","slide":3,"text":"Mobile, admin, bot, and Convex backend work together as one commerce operating system.","textPreview":"Mobile, admin, bot, and Convex backend work together as one commerce operating system.","textChars":86,"textLines":1,"bbox":[72,208,760,68]}
+{"kind":"shape","id":"sh/tsjq5o3q","slide":3,"bbox":[72,326,532,114]}
+{"kind":"textbox","id":"sh/srqpcj25","slide":3,"text":"Mobile app","textPreview":"Mobile app","textChars":10,"textLines":1,"bbox":[96,344,220,30]}
+{"kind":"textbox","id":"sh/naxo7ulg","slide":3,"text":"Browse, search, save, chat, call, sell, pay, promote, reels.","textPreview":"Browse, search, save, chat, call, sell, pay, promote, reels.","textChars":60,"textLines":1,"bbox":[96,384,470,36]}
+{"kind":"shape","id":"sh/m9o7yp4v","slide":3,"bbox":[676,326,532,114]}
+{"kind":"textbox","id":"sh/4r2983q1","slide":3,"text":"Admin panel","textPreview":"Admin panel","textChars":11,"textLines":1,"bbox":[700,344,220,30]}
+{"kind":"textbox","id":"sh/5svah8rm","slide":3,"text":"Moderation, users, feed control, dealers, ads, reels, reports, payments.","textPreview":"Moderation, users, feed control, dealers, ads, reels, reports, payments.","textChars":72,"textLines":1,"bbox":[700,384,470,36]}
+{"kind":"shape","id":"sh/ipkr6t8v","slide":3,"bbox":[72,486,532,114]}
+{"kind":"textbox","id":"sh/jqtsfy9g","slide":3,"text":"Telegram bot","textPreview":"Telegram bot","textChars":12,"textLines":1,"bbox":[96,504,220,30]}
+{"kind":"textbox","id":"sh/svm9cnqx","slide":3,"text":"Browse and sell from Telegram with phone verification.","textPreview":"Browse and sell from Telegram with phone verification.","textChars":54,"textLines":1,"bbox":[96,544,470,36]}
+{"kind":"shape","id":"sh/dgvalsri","slide":3,"bbox":[676,486,532,114]}
+{"kind":"textbox","id":"sh/qt4rad87","slide":3,"text":"Convex backend","textPreview":"Convex backend","textChars":14,"textLines":1,"bbox":[700,504,220,30]}
+{"kind":"textbox","id":"sh/rudsji9s","slide":3,"text":"Realtime marketplace data, auth handshakes, payments, trust, bounty, savings.","textPreview":"Realtime marketplace data, auth handshakes, payments, trust, bounty, savings.","textChars":77,"textLines":1,"bbox":[700,544,470,36]}
+{"kind":"textbox","id":"sh/8zi90jqt","slide":3,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"notes","id":"nt/ozqrbp","slide":3,"text":""}
+{"kind":"slide","id":"sl/10a7y0","slide":4,"title":"HALOLMIA","textShapes":12}
+{"kind":"shape","id":"sh/idw3y1g7","slide":4,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/5g729wzi","slide":4,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/kfyl0byx","slide":4,"text":"HALOLMIA","textPreview":"HALOLMIA","textChars":8,"textLines":1,"bbox":[72,42,180,24]}
+{"kind":"textbox","id":"sh/vq5k3mhg","slide":4,"text":"Every transaction makes the network harder to copy.","textPreview":"Every transaction makes the network harder to copy.","textChars":51,"textLines":1,"bbox":[72,92,820,112]}
+{"kind":"textbox","id":"sh/apw3uhgv","slide":4,"text":"Each listing, message, review, verification, payment, and video strengthens the trust graph.","textPreview":"Each listing, message, review, verification, payment, and video strengthens the trust graph.","textChars":92,"textLines":1,"bbox":[72,208,760,68]}
+{"kind":"shape","id":"sh/xcn25wzm","slide":4,"bbox":[515,320,250,118]}
+{"kind":"textbox","id":"sh/wbelwry1","slide":4,"text":"Verified deal","textPreview":"Verified deal","textChars":13,"textLines":1,"bbox":[541,348,200,36]}
+{"kind":"textbox","id":"sh/nmlkzmhk","slide":4,"text":"less fear, faster trade","textPreview":"less fear, faster trade","textChars":23,"textLines":1,"bbox":[537,390,206,24]}
+{"kind":"shape","id":"sh/mlc3qhgz","slide":4,"bbox":[98,198,260,78]}
+{"kind":"textbox","id":"sh/sza5cz6h","slide":4,"text":"Seller identity","textPreview":"Seller identity","textChars":15,"textLines":1,"bbox":[116,222,224,28]}
+{"kind":"shape","id":"sh/d0j6l472","slide":4,"bbox":[92,464,260,78]}
+{"kind":"textbox","id":"sh/qdsnap8b","slide":4,"text":"Reviews","textPreview":"Reviews","textChars":7,"textLines":1,"bbox":[110,488,224,28]}
+{"kind":"shape","id":"sh/ry14jupw","slide":4,"bbox":[455,162,260,78]}
+{"kind":"textbox","id":"sh/4bq58fql","slide":4,"text":"Photos & video","textPreview":"Photos & video","textChars":14,"textLines":1,"bbox":[473,186,224,28]}
+{"kind":"shape","id":"sh/5czmhk7q","slide":4,"bbox":[846,198,260,78]}
+{"kind":"textbox","id":"sh/i98n6p8f","slide":4,"text":"Location","textPreview":"Location","textChars":8,"textLines":1,"bbox":[864,222,224,28]}
+{"kind":"shape","id":"sh/3ah4fup0","slide":4,"bbox":[866,464,260,78]}
+{"kind":"textbox","id":"sh/o7u5kj6p","slide":4,"text":"Chat & calls","textPreview":"Chat & calls","textChars":12,"textLines":1,"bbox":[884,488,224,28]}
+{"kind":"shape","id":"sh/p836to7a","slide":4,"bbox":[432,536,260,78]}
+{"kind":"textbox","id":"sh/xozmxoze","slide":4,"text":"Admin moderation","textPreview":"Admin moderation","textChars":16,"textLines":1,"bbox":[450,560,224,28]}
+{"kind":"textbox","id":"sh/wnq54jyt","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"notes","id":"nt/10a7y0","slide":4,"text":""}
+{"kind":"slide","id":"sl/6xj6pa","slide":5,"title":"HALOLMIA","textShapes":12}
+{"kind":"shape","id":"sh/p8ni1snq","slide":5,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/2lcj6d4f","slide":5,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/3m50zi5k","slide":5,"text":"HALOLMIA","textPreview":"HALOLMIA","textChars":8,"textLines":1,"bbox":[72,42,180,24]}
+{"kind":"textbox","id":"sh/gju143m9","slide":5,"text":"The breakthrough: users can earn from the marketplace they grow.","textPreview":"The breakthrough: users can earn from the marketplace they grow.","textChars":64,"textLines":1,"bbox":[72,92,820,112]}
+{"kind":"textbox","id":"sh/1k3ix8nu","slide":5,"text":"Halolmia Daromad gives people halal ways to make money by creating real value inside the ecosystem.","textPreview":"Halolmia Daromad gives people halal ways to make money by creating real value inside the ecosystem.","textChars":99,"textLines":1,"bbox":[72,208,760,68]}
+{"kind":"shape","id":"sh/ehcz2d43","slide":5,"bbox":[72,310,520,112]}
+{"kind":"textbox","id":"sh/fil0vy5o","slide":5,"text":"Creator bounty","textPreview":"Creator bounty","textChars":14,"textLines":1,"bbox":[96,328,280,32]}
+{"kind":"textbox","id":"sh/kfy1g7md","slide":5,"text":"Users earn from qualified content, installs, activations, and campaign performance.","textPreview":"Users earn from qualified content, installs, activations, and campaign performance.","textChars":83,"textLines":1,"bbox":[96,368,454,38]}
+{"kind":"shape","id":"sh/lg7i9c3y","slide":5,"bbox":[640,310,520,112]}
+{"kind":"textbox","id":"sh/1onyd0re","slide":5,"text":"Dealer leads","textPreview":"Dealer leads","textChars":12,"textLines":1,"bbox":[664,328,280,32]}
+{"kind":"textbox","id":"sh/gnex4vat","slide":5,"text":"Creators and partners generate demand for official dealers and promoted sellers.","textPreview":"Creators and partners generate demand for official dealers and promoted sellers.","textChars":80,"textLines":1,"bbox":[664,368,454,38]}
+{"kind":"shape","id":"sh/fm5wbq98","slide":5,"bbox":[72,452,520,112]}
+{"kind":"textbox","id":"sh/elwf2ls3","slide":5,"text":"Savings goals","textPreview":"Savings goals","textChars":13,"textLines":1,"bbox":[96,470,280,32]}
+{"kind":"textbox","id":"sh/tkne9gri","slide":5,"text":"Users save toward animals through wallet and card deposits.","textPreview":"Users save toward animals through wallet and card deposits.","textChars":59,"textLines":1,"bbox":[96,510,454,38]}
+{"kind":"shape","id":"sh/sjex0vax","slide":5,"bbox":[640,452,520,112]}
+{"kind":"textbox","id":"sh/ry5w7q9c","slide":5,"text":"Farmer financing","textPreview":"Farmer financing","textChars":16,"textLines":1,"bbox":[664,470,280,32]}
+{"kind":"textbox","id":"sh/6xcfylsr","slide":5,"text":"Verified sellers request capital for real livestock trade, then share upside after sale.","textPreview":"Verified sellers request capital for real livestock trade, then share upside after sale.","textChars":88,"textLines":1,"bbox":[664,510,454,38]}
+{"kind":"textbox","id":"sh/dg7ylkrm","slide":5,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"notes","id":"nt/6xj6pa","slide":5,"text":""}
+{"kind":"slide","id":"sl/8taj8x","slide":6,"title":"HALOLMIA","textShapes":16}
+{"kind":"shape","id":"sh/36xkzehc","slide":6,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/476lsjix","slide":6,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/58fm14zi","slide":6,"text":"HALOLMIA","textPreview":"HALOLMIA","textChars":8,"textLines":1,"bbox":[72,42,180,24]}
+{"kind":"textbox","id":"sh/q9o3u9g3","slide":6,"text":"We start with measurable rewards before regulated financial products.","textPreview":"We start with measurable rewards before regulated financial products.","textChars":69,"textLines":1,"bbox":[72,92,820,112]}
+{"kind":"textbox","id":"sh/rax43eho","slide":6,"text":"That lets Halolmia build trust, data, and compliance before scaling into financing.","textPreview":"That lets Halolmia build trust, data, and compliance before scaling into financing.","textChars":83,"textLines":1,"bbox":[72,208,760,68]}
+{"kind":"shape","id":"sh/sb6lwjyt","slide":6,"bbox":[80,328,244,190]}
+{"kind":"textbox","id":"sh/dcfm5oze","slide":6,"text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[104,352,54,54]}
+{"kind":"textbox","id":"sh/ed83ytgz","slide":6,"text":"Creator rewards","textPreview":"Creator rewards","textChars":15,"textLines":1,"bbox":[104,418,196,34]}
+{"kind":"textbox","id":"sh/feh47yhk","slide":6,"text":"Pay for measurable distribution.","textPreview":"Pay for measurable distribution.","textChars":32,"textLines":1,"bbox":[104,462,190,46]}
+{"kind":"shape","id":"sh/by1cr6xw","slide":6,"bbox":[372,328,244,190]}
+{"kind":"textbox","id":"sh/adsbilgr","slide":6,"text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[396,352,54,54]}
+{"kind":"textbox","id":"sh/x0jutgf2","slide":6,"text":"Lead marketplace","textPreview":"Lead marketplace","textChars":16,"textLines":1,"bbox":[396,418,196,34]}
+{"kind":"textbox","id":"sh/czatkbyh","slide":6,"text":"Reward verified buyer/seller referrals.","textPreview":"Reward verified buyer/seller referrals.","textChars":39,"textLines":1,"bbox":[396,462,190,46]}
+{"kind":"shape","id":"sh/nahcn6h0","slide":6,"bbox":[664,328,244,190]}
+{"kind":"textbox","id":"sh/298bu1gf","slide":6,"text":"3","textPreview":"3","textChars":1,"textLines":1,"bbox":[688,352,54,54]}
+{"kind":"textbox","id":"sh/pcjupgz6","slide":6,"text":"Savings plus","textPreview":"Savings plus","textChars":12,"textLines":1,"bbox":[688,418,196,34]}
+{"kind":"textbox","id":"sh/obatwbyl","slide":6,"text":"Move goal-based savings into commerce flows.","textPreview":"Move goal-based savings into commerce flows.","textChars":44,"textLines":1,"bbox":[688,462,190,46]}
+{"kind":"shape","id":"sh/76lczax4","slide":6,"bbox":[956,328,244,190]}
+{"kind":"textbox","id":"sh/m5cvq5gz","slide":6,"text":"4","textPreview":"4","textChars":1,"textLines":1,"bbox":[980,352,54,54]}
+{"kind":"textbox","id":"sh/2dgnet43","slide":6,"text":"Verified deal pools","textPreview":"Verified deal pools","textChars":19,"textLines":1,"bbox":[980,418,196,34]}
+{"kind":"textbox","id":"sh/3e9o7ylo","slide":6,"text":"Finance real sellers with admin and sharia review.","textPreview":"Finance real sellers with admin and sharia review.","textChars":50,"textLines":1,"bbox":[980,462,190,46]}
+{"kind":"textbox","id":"sh/4zi5g3m9","slide":6,"text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"notes","id":"nt/8taj8x","slide":6,"text":""}
+{"kind":"slide","id":"sl/ofz6m6","slide":7,"title":"HALOLMIA","textShapes":14}
+{"kind":"shape","id":"sh/oryhovq9","slide":7,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/3qpgvqpo","slide":7,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/2pgfml8j","slide":7,"text":"HALOLMIA","textPreview":"HALOLMIA","textChars":8,"textLines":1,"bbox":[72,42,180,24]}
+{"kind":"textbox","id":"sh/1o7ytg7y","slide":7,"text":"Revenue stacks across commerce, distribution, and capital.","textPreview":"Revenue stacks across commerce, distribution, and capital.","textChars":58,"textLines":1,"bbox":[72,92,820,112]}
+{"kind":"textbox","id":"sh/g3yxkbqd","slide":7,"text":"The model begins with marketplace revenue and expands into performance and financing products.","textPreview":"The model begins with marketplace revenue and expands into performance and financing products.","textChars":94,"textLines":1,"bbox":[72,208,760,68]}
+{"kind":"textbox","id":"sh/f2pgrqps","slide":7,"text":"Promoted listings","textPreview":"Promoted listings","textChars":17,"textLines":1,"bbox":[120,292,330,32]}
+{"kind":"textbox","id":"sh/e1gfil87","slide":7,"text":"Alo / Zo'r / VIP / Lux feed boosts","textPreview":"Alo / Zo'r / VIP / Lux feed boosts","textChars":34,"textLines":1,"bbox":[490,295,560,26]}
+{"kind":"shape","id":"sh/t0nypg7m","slide":7,"bbox":[112,340,948,0]}
+{"kind":"textbox","id":"sh/szexgbq1","slide":7,"text":"Dealer products","textPreview":"Dealer products","textChars":15,"textLines":1,"bbox":[120,358,330,32]}
+{"kind":"textbox","id":"sh/qlgnmhwv","slide":7,"text":"Showcase videos, profiles, lead packages","textPreview":"Showcase videos, profiles, lead packages","textChars":40,"textLines":1,"bbox":[490,361,560,26]}
+{"kind":"shape","id":"sh/rmp4fmxg","slide":7,"bbox":[112,406,948,0]}
+{"kind":"textbox","id":"sh/cny5ore1","slide":7,"text":"Payments","textPreview":"Payments","textChars":8,"textLines":1,"bbox":[120,424,330,32]}
+{"kind":"textbox","id":"sh/do7mhwfm","slide":7,"text":"Wallet top-ups, savings, promotion checkout","textPreview":"Wallet top-ups, savings, promotion checkout","textChars":43,"textLines":1,"bbox":[490,427,560,26]}
+{"kind":"shape","id":"sh/2hw3ixwz","slide":7,"bbox":[112,472,948,0]}
+{"kind":"textbox","id":"sh/3i54b2xk","slide":7,"text":"Performance fees","textPreview":"Performance fees","textChars":16,"textLines":1,"bbox":[120,490,330,32]}
+{"kind":"textbox","id":"sh/4jelk7ep","slide":7,"text":"Take-rate on verified financing outcomes","textPreview":"Take-rate on verified financing outcomes","textChars":40,"textLines":1,"bbox":[490,493,560,26]}
+{"kind":"shape","id":"sh/pk7mdcfa","slide":7,"bbox":[112,538,948,0]}
+{"kind":"textbox","id":"sh/utw3exgn","slide":7,"text":"Ads","textPreview":"Ads","textChars":3,"textLines":1,"bbox":[120,556,330,32]}
+{"kind":"textbox","id":"sh/fu5472x8","slide":7,"text":"Sponsored marketplace placements","textPreview":"Sponsored marketplace placements","textChars":32,"textLines":1,"bbox":[490,559,560,26]}
+{"kind":"shape","id":"sh/jy1kfyd0","slide":7,"bbox":[112,604,948,0]}
+{"kind":"textbox","id":"sh/yxsjmtwf","slide":7,"text":"07","textPreview":"07","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"notes","id":"nt/ofz6m6","slide":7,"text":""}
+{"kind":"slide","id":"sl/0zrjho","slide":8,"title":"HALOLMIA","textShapes":13}
+{"kind":"shape","id":"sh/jqpgr2d8","slide":8,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/4ryxk7ut","slide":8,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/5s7ytcve","slide":8,"text":"HALOLMIA","textPreview":"HALOLMIA","textChars":8,"textLines":1,"bbox":[72,42,180,24]}
+{"kind":"textbox","id":"sh/ulwfedcr","slide":8,"text":"The moat is the full loop: trust, supply, demand, and money.","textPreview":"The moat is the full loop: trust, supply, demand, and money.","textChars":60,"textLines":1,"bbox":[72,92,820,112]}
+{"kind":"textbox","id":"sh/vm5gnidc","slide":8,"text":"Most marketplaces stop at listings. Halolmia connects the entire livestock commerce cycle.","textPreview":"Most marketplaces stop at listings. Halolmia connects the entire livestock commerce cycle.","textChars":90,"textLines":1,"bbox":[72,208,760,68]}
+{"kind":"textbox","id":"sh/wnyxgnuh","slide":8,"text":"Trust","textPreview":"Trust","textChars":5,"textLines":1,"bbox":[88,334,230,56]}
+{"kind":"textbox","id":"sh/ho7ypsv2","slide":8,"text":"verified sellers, reviews, moderation","textPreview":"verified sellers, reviews, moderation","textChars":37,"textLines":1,"bbox":[88,392,230,48]}
+{"kind":"textbox","id":"sh/mxwfadcf","slide":8,"text":"Supply","textPreview":"Supply","textChars":6,"textLines":1,"bbox":[384,334,230,56]}
+{"kind":"textbox","id":"sh/7i5gjid0","slide":8,"text":"farmers, dealers, and animal owners","textPreview":"farmers, dealers, and animal owners","textChars":35,"textLines":1,"bbox":[384,392,230,48]}
+{"kind":"textbox","id":"sh/bax0baxs","slide":8,"text":"Demand","textPreview":"Demand","textChars":6,"textLines":1,"bbox":[680,334,230,56]}
+{"kind":"textbox","id":"sh/a9oji5g7","slide":8,"text":"buyers from app and Telegram","textPreview":"buyers from app and Telegram","textChars":28,"textLines":1,"bbox":[680,392,230,48]}
+{"kind":"textbox","id":"sh/xczidkfi","slide":8,"text":"Money","textPreview":"Money","textChars":5,"textLines":1,"bbox":[976,334,230,56]}
+{"kind":"textbox","id":"sh/cb61kfyx","slide":8,"text":"savings, rewards, payments, financing","textPreview":"savings, rewards, payments, financing","textChars":37,"textLines":1,"bbox":[976,392,230,48]}
+{"kind":"textbox","id":"sh/zyh0fuxo","slide":8,"text":"The defensibility is not one feature. It is the network data created when listings, identity, video, messages, payments, and rewards happen in one place.","textPreview":"The defensibility is not one feature. It is the network data created when listings, identity, video, messages, payments, and rewards happ...","textChars":153,"textLines":1,"bbox":[156,548,970,58]}
+{"kind":"textbox","id":"sh/yd8jmpw3","slide":8,"text":"08","textPreview":"08","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"notes","id":"nt/0zrjho","slide":8,"text":""}
+{"kind":"slide","id":"sl/typpiu","slide":9,"title":"HALOLMIA","textShapes":12}
+{"kind":"shape","id":"sh/tczqlcfy","slide":9,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/6p8rqhg7","slide":9,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/rah8jmhs","slide":9,"text":"HALOLMIA","textPreview":"HALOLMIA","textChars":8,"textLines":1,"bbox":[72,42,180,24]}
+{"kind":"textbox","id":"sh/gfa9wry9","slide":9,"text":"Growth is built into the product, not bolted on later.","textPreview":"Growth is built into the product, not bolted on later.","textChars":54,"textLines":1,"bbox":[72,92,820,112]}
+{"kind":"textbox","id":"sh/1gjqpwfu","slide":9,"text":"Creators and sellers are not only users; they become paid distribution partners.","textPreview":"Creators and sellers are not only users; they become paid distribution partners.","textChars":80,"textLines":1,"bbox":[72,208,760,68]}
+{"kind":"textbox","id":"sh/wj69k7y5","slide":9,"text":"Acquire sellers","textPreview":"Acquire sellers","textChars":15,"textLines":1,"bbox":[90,286,260,30]}
+{"kind":"textbox","id":"sh/hkfqdszq","slide":9,"text":"creator bounty, Telegram bot, dealer onboarding","textPreview":"creator bounty, Telegram bot, dealer onboarding","textChars":47,"textLines":1,"bbox":[370,289,360,26]}
+{"kind":"textbox","id":"sh/h0ne9k32","slide":9,"text":"Activate buyers","textPreview":"Activate buyers","textChars":15,"textLines":1,"bbox":[90,358,260,30]}
+{"kind":"textbox","id":"sh/gzed0fmx","slide":9,"text":"search, reels, trust badges, chat and calls","textPreview":"search, reels, trust badges, chat and calls","textChars":43,"textLines":1,"bbox":[370,361,360,26]}
+{"kind":"textbox","id":"sh/vy5w7ulc","slide":9,"text":"Monetize sellers","textPreview":"Monetize sellers","textChars":16,"textLines":1,"bbox":[90,430,260,30]}
+{"kind":"textbox","id":"sh/uxwvyp4r","slide":9,"text":"promotions, dealer packages, lead products","textPreview":"promotions, dealer packages, lead products","textChars":42,"textLines":1,"bbox":[370,433,360,26]}
+{"kind":"textbox","id":"sh/p47ed43e","slide":9,"text":"Expand earning","textPreview":"Expand earning","textChars":14,"textLines":1,"bbox":[90,502,260,30]}
+{"kind":"textbox","id":"sh/43yd4zmt","slide":9,"text":"bounty to referrals to verified deal financing","textPreview":"bounty to referrals to verified deal financing","textChars":46,"textLines":1,"bbox":[370,505,360,26]}
+{"kind":"textbox","id":"sh/32pwbul8","slide":9,"text":"09","textPreview":"09","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"image","id":"im/b61c7upc","slide":9,"name":"","geometry":"roundRect","alt":"naslli.png","bbox":[796,188,340,214]}
+{"kind":"image","id":"im/a5sbypor","slide":9,"name":"","geometry":"roundRect","alt":"yaqin.png","bbox":[850,420,260,160]}
+{"kind":"notes","id":"nt/typpiu","slide":9,"text":""}
+{"kind":"slide","id":"sl/zmzlu0","slide":10,"title":"HALOLMIA","textShapes":12}
+{"kind":"shape","id":"sh/c32p8j2x","slide":10,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/b2t8zelc","slide":10,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/q10769kr","slide":10,"text":"HALOLMIA","textPreview":"HALOLMIA","textChars":8,"textLines":1,"bbox":[72,42,180,24]}
+{"kind":"textbox","id":"sh/p0rqx43m","slide":10,"text":"The roadmap turns trust into a financial platform.","textPreview":"The roadmap turns trust into a financial platform.","textChars":50,"textLines":1,"bbox":[72,92,820,112]}
+{"kind":"textbox","id":"sh/ozip4j21","slide":10,"text":"Every phase adds revenue without breaking user trust.","textPreview":"Every phase adds revenue without breaking user trust.","textChars":53,"textLines":1,"bbox":[72,208,760,68]}
+{"kind":"shape","id":"sh/3y98velg","slide":10,"bbox":[92,316,230,210]}
+{"kind":"textbox","id":"sh/2x0729kv","slide":10,"text":"Now","textPreview":"Now","textChars":3,"textLines":1,"bbox":[114,344,190,30]}
+{"kind":"textbox","id":"sh/1wrqt43a","slide":10,"text":"Marketplace, admin, bot, reels, savings, bounty primitives","textPreview":"Marketplace, admin, bot, reels, savings, bounty primitives","textChars":58,"textLines":1,"bbox":[114,396,184,86]}
+{"kind":"shape","id":"sh/gvip0z2p","slide":10,"bbox":[372,316,230,210]}
+{"kind":"textbox","id":"sh/e50j2xcn","slide":10,"text":"Next 90 days","textPreview":"Next 90 days","textChars":12,"textLines":1,"bbox":[394,344,190,30]}
+{"kind":"textbox","id":"sh/z690v2d8","slide":10,"text":"Creator dashboard, referral tracking, dealer lead packages","textPreview":"Creator dashboard, referral tracking, dealer lead packages","textChars":58,"textLines":1,"bbox":[394,396,184,86]}
+{"kind":"shape","id":"sh/072147ut","slide":10,"bbox":[652,316,230,210]}
+{"kind":"textbox","id":"sh/18bixcve","slide":10,"text":"6 months","textPreview":"6 months","textChars":8,"textLines":1,"bbox":[674,344,190,30]}
+{"kind":"textbox","id":"sh/q10jyxcr","slide":10,"text":"Verified seller financing requests and manual deal operations","textPreview":"Verified seller financing requests and manual deal operations","textChars":61,"textLines":1,"bbox":[674,396,184,86]}
+{"kind":"shape","id":"sh/r290ridc","slide":10,"bbox":[932,316,230,210]}
+{"kind":"textbox","id":"sh/c3i10nux","slide":10,"text":"12 months","textPreview":"12 months","textChars":9,"textLines":1,"bbox":[954,344,190,30]}
+{"kind":"textbox","id":"sh/d4ritsvi","slide":10,"text":"Audited halal deal pools with transparent risk and payout reporting","textPreview":"Audited halal deal pools with transparent risk and payout reporting","textChars":67,"textLines":1,"bbox":[954,396,184,86]}
+{"kind":"textbox","id":"sh/2dgzudcv","slide":10,"text":"10","textPreview":"10","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"notes","id":"nt/zmzlu0","slide":10,"text":""}
+{"kind":"slide","id":"sl/zis1uz","slide":11,"title":"HALOLMIA","textShapes":12}
+{"kind":"shape","id":"sh/436lcfm1","slide":11,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/32x43a5g","slide":11,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/iho3a54v","slide":11,"text":"HALOLMIA","textPreview":"HALOLMIA","textChars":8,"textLines":1,"bbox":[72,42,180,24]}
+{"kind":"textbox","id":"sh/hgf210nq","slide":11,"text":"The raise accelerates the trust moat and earning engine.","textPreview":"The raise accelerates the trust moat and earning engine.","textChars":56,"textLines":1,"bbox":[72,92,820,112]}
+{"kind":"textbox","id":"sh/gf6l8vm5","slide":11,"text":"Capital goes into product, supply onboarding, compliance, and measurable distribution.","textPreview":"Capital goes into product, supply onboarding, compliance, and measurable distribution.","textChars":86,"textLines":1,"bbox":[72,208,760,68]}
+{"kind":"shape","id":"sh/vexkzq5k","slide":11,"bbox":[120,322,440,98]}
+{"kind":"textbox","id":"sh/ud436l4z","slide":11,"text":"Product","textPreview":"Product","textChars":7,"textLines":1,"bbox":[142,339,160,30]}
+{"kind":"textbox","id":"sh/tcv2xgne","slide":11,"text":"creator/referral dashboards, wallet polish, deal ops workflows","textPreview":"creator/referral dashboards, wallet polish, deal ops workflows","textChars":62,"textLines":1,"bbox":[310,341,206,44]}
+{"kind":"shape","id":"sh/8bml4vmt","slide":11,"bbox":[640,322,440,98]}
+{"kind":"textbox","id":"sh/mhkv6xcr","slide":11,"text":"Supply","textPreview":"Supply","textChars":6,"textLines":1,"bbox":[662,339,160,30]}
+{"kind":"textbox","id":"sh/7itcz2tc","slide":11,"text":"farmer and dealer onboarding across priority regions","textPreview":"farmer and dealer onboarding across priority regions","textChars":52,"textLines":1,"bbox":[830,341,206,44]}
+{"kind":"shape","id":"sh/8j2d87uh","slide":11,"bbox":[120,452,440,98]}
+{"kind":"textbox","id":"sh/9kbu1cb2","slide":11,"text":"Trust","textPreview":"Trust","textChars":5,"textLines":1,"bbox":[142,469,160,30]}
+{"kind":"textbox","id":"sh/ytkv2xcf","slide":11,"text":"verification, moderation tooling, legal and sharia review","textPreview":"verification, moderation tooling, legal and sharia review","textChars":57,"textLines":1,"bbox":[310,471,206,44]}
+{"kind":"shape","id":"sh/zetcv2t0","slide":11,"bbox":[640,452,440,98]}
+{"kind":"textbox","id":"sh/kf2d47ul","slide":11,"text":"Growth","textPreview":"Growth","textChars":6,"textLines":1,"bbox":[662,469,160,30]}
+{"kind":"textbox","id":"sh/lgbuxsb6","slide":11,"text":"performance campaigns tied to installs, listings, and transactions","textPreview":"performance campaigns tied to installs, listings, and transactions","textChars":66,"textLines":1,"bbox":[830,471,206,44]}
+{"kind":"textbox","id":"sh/ap0bydcj","slide":11,"text":"11","textPreview":"11","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"notes","id":"nt/zis1uz","slide":11,"text":""}
+{"kind":"slide","id":"sl/28lyen","slide":12,"title":"Halolmia can become the money layer for trusted livestock commerce.","textShapes":6}
+{"kind":"shape","id":"sh/c3mp4net","slide":12,"bbox":[0,0,1280,720]}
+{"kind":"shape","id":"sh/b2dovid8","slide":12,"bbox":[0,0,1280,10]}
+{"kind":"textbox","id":"sh/l8fq1cva","slide":12,"text":"Halolmia can become the money layer for trusted livestock commerce.","textPreview":"Halolmia can become the money layer for trusted livestock commerce.","textChars":67,"textLines":1,"bbox":[76,118,760,150]}
+{"kind":"textbox","id":"sh/07mp87ep","slide":12,"text":"The ask: partner with us to scale from marketplace traction into the halal earning engine for farmers, dealers, creators, buyers, and everyday savers.","textPreview":"The ask: partner with us to scale from marketplace traction into the halal earning engine for farmers, dealers, creators, buyers, and eve...","textChars":150,"textLines":1,"bbox":[80,328,760,92]}
+{"kind":"shape","id":"sh/z6d8z2d4","slide":12,"bbox":[84,482,190,40]}
+{"kind":"textbox","id":"sh/y5476xwz","slide":12,"text":"Marketplace first","textPreview":"Marketplace first","textChars":17,"textLines":1,"bbox":[100,490,158,24]}
+{"kind":"shape","id":"sh/9wfq5cvm","slide":12,"bbox":[296,482,220,40]}
+{"kind":"textbox","id":"sh/8b6pc7e1","slide":12,"text":"Earning engine next","textPreview":"Earning engine next","textChars":19,"textLines":1,"bbox":[312,490,188,24]}
+{"kind":"textbox","id":"sh/ato7qlwb","slide":12,"text":"Halolmia • Investor pitch • 2026","textPreview":"Halolmia • Investor pitch • 2026","textChars":32,"textLines":1,"bbox":[84,632,420,26]}
+{"kind":"textbox","id":"sh/buxojqxw","slide":12,"text":"12","textPreview":"12","textChars":2,"textLines":1,"bbox":[1164,646,44,24]}
+{"kind":"image","id":"im/rypkzyd0","slide":12,"name":"","geometry":"roundRect","alt":"icon.png","bbox":[910,112,180,180]}
+{"kind":"notes","id":"nt/28lyen","slide":12,"text":""}

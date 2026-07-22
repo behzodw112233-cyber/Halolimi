@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation';
 import {
   CreditCard,
   Flag,
+  Gift,
   LayoutDashboard,
   LayoutGrid,
   ClipboardList,
@@ -39,6 +40,7 @@ const NAV: NavItem[] = [
   { label: 'Reels / Video bozor', icon: Video, href: '/reels' },
   { label: 'Plan', icon: Map, href: '/plan' },
   { label: 'Leads', icon: UserRoundSearch, href: '/leads' },
+  { label: 'Creator rewards', icon: Gift, href: '/creator-rewards' },
   { label: 'Tekshiruv', icon: ShieldCheck, href: '/tekshiruv' },
   { label: 'Foydalanuvchilar', icon: Users, href: '/foydalanuvchilar' },
   { label: 'Kategoriyalar', icon: LayoutGrid, href: '/kategoriyalar' },

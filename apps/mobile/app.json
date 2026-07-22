@@ -13,6 +13,7 @@
       "web"
     ],
     "ios": {
+      "bundleIdentifier": "com.behzodosteam.halomi",
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Halolmi videoqoʻngʻiroqlar uchun kameradan foydalanadi.",

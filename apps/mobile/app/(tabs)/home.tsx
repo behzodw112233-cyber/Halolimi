@@ -26,8 +26,6 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
   useAudioRecorderState,
-  useVideoPlayer,
-  VideoView,
 } from '../../lib/optional-native';
 import { capture, useExperiment } from '../../lib/posthog';
 import { useRecentlyViewed } from '../../lib/recently-viewed';
@@ -119,14 +117,6 @@ function thumbnailCandidates(url?: string | null) {
   return [url];
 }
 
-function safePreviewCall(fn: () => void) {
-  try {
-    fn();
-  } catch {
-    // Preview players can be released while the feed recycles cells.
-  }
-}
-
 function VideoBozorPreview({
   reel,
   onPress,
@@ -137,26 +127,10 @@ function VideoBozorPreview({
   const candidates = useMemo(() => thumbnailCandidates(reel?.thumbUrl), [reel?.thumbUrl]);
   const [candidateIndex, setCandidateIndex] = useState(0);
   const imageUrl = candidates[candidateIndex];
-  const showVideoFallback = !!reel?.videoUrl && !imageUrl;
-  const player = useVideoPlayer(showVideoFallback && reel?.videoUrl ? reel.videoUrl : '', (p) => {
-    p.loop = true;
-    p.muted = true;
-  });
 
   useEffect(() => {
     setCandidateIndex(0);
   }, [reel?._id, reel?.thumbUrl]);
-
-  useEffect(() => {
-    if (!showVideoFallback) {
-      safePreviewCall(() => player.pause());
-      return;
-    }
-    safePreviewCall(() => player.play());
-    return () => {
-      safePreviewCall(() => player.pause());
-    };
-  }, [player, showVideoFallback]);
 
   return (
     <Pressable
@@ -171,14 +145,6 @@ function VideoBozorPreview({
           onError={() => {
             setCandidateIndex((i) => (i + 1 < candidates.length ? i + 1 : candidates.length));
           }}
-          style={{ position: 'absolute', width: '100%', height: '100%' }}
-        />
-      ) : showVideoFallback ? (
-        <VideoView
-          player={player}
-          contentFit="cover"
-          nativeControls={false}
-          surfaceType="textureView"
           style={{ position: 'absolute', width: '100%', height: '100%' }}
         />
       ) : (
@@ -265,26 +231,10 @@ function VideoBozorMedia({ reel }: { reel: ReelPreview | null }) {
   const candidates = useMemo(() => thumbnailCandidates(reel?.thumbUrl), [reel?.thumbUrl]);
   const [candidateIndex, setCandidateIndex] = useState(0);
   const imageUrl = candidates[candidateIndex];
-  const showVideoFallback = !!reel?.videoUrl && !imageUrl;
-  const player = useVideoPlayer(showVideoFallback && reel?.videoUrl ? reel.videoUrl : '', (p) => {
-    p.loop = true;
-    p.muted = true;
-  });
 
   useEffect(() => {
     setCandidateIndex(0);
   }, [reel?._id, reel?.thumbUrl]);
-
-  useEffect(() => {
-    if (!showVideoFallback) {
-      safePreviewCall(() => player.pause());
-      return;
-    }
-    safePreviewCall(() => player.play());
-    return () => {
-      safePreviewCall(() => player.pause());
-    };
-  }, [player, showVideoFallback]);
 
   if (imageUrl) {
     return (
@@ -294,18 +244,6 @@ function VideoBozorMedia({ reel }: { reel: ReelPreview | null }) {
         onError={() => {
           setCandidateIndex((i) => (i + 1 < candidates.length ? i + 1 : candidates.length));
         }}
-        style={{ position: 'absolute', width: '100%', height: '100%' }}
-      />
-    );
-  }
-
-  if (showVideoFallback) {
-    return (
-      <VideoView
-        player={player}
-        contentFit="cover"
-        nativeControls={false}
-        surfaceType="textureView"
         style={{ position: 'absolute', width: '100%', height: '100%' }}
       />
     );

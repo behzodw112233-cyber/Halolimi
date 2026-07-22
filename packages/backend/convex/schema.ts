@@ -299,7 +299,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index('by_owner', ['ownerId'])
-    .index('by_owner_account', ['ownerId', 'accountId']),
+    .index('by_owner_account', ['ownerId', 'accountId'])
+    .index('by_account', ['accountId']),
 
   // Buyer reviews of a seller (1–5 stars + optional text). One row per review.
   reviews: defineTable({
@@ -460,8 +461,13 @@ export default defineSchema({
     token: v.string(),
     status: v.union(v.literal('pending'), v.literal('verified')),
     userId: v.optional(v.id('users')),
+    telegramId: v.optional(v.string()),
+    verifiedAt: v.optional(v.number()),
+    consumedAt: v.optional(v.number()),
     createdAt: v.number(),
-  }).index('by_token', ['token']),
+  })
+    .index('by_token', ['token'])
+    .index('by_telegram_created', ['telegramId', 'createdAt']),
 
   reports: defineTable({
     sellerId: v.optional(v.id('users')),

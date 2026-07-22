@@ -8,6 +8,7 @@ grammY bot for browse / sell / saved / profile + app login handshake (Telegram c
 |----------|----------|--------|
 | `BOT_TOKEN` | yes | From @BotFather |
 | `CONVEX_URL` | yes | e.g. `https://xxx.convex.cloud` |
+| `TELEGRAM_AUTH_SECRET` | yes | Same random 32+ character server-only value in bot hosting and Convex |
 | `WEBHOOK_URL` | no | If set → webhook mode. **Leave empty on Pella** (long-polling). |
 | `WEBHOOK_SECRET` | webhook only | Shared secret with Telegram |
 | `PORT` | webhook only | Default `8080` |
@@ -68,6 +69,13 @@ npx tsx apps/bot/src/index.ts
 ```
 BOT_TOKEN=123456:ABC-from-BotFather
 CONVEX_URL=https://your-deployment.convex.cloud
+TELEGRAM_AUTH_SECRET=replace-with-a-long-random-secret
+```
+
+Configure the same secret in the Convex deployment:
+
+```bash
+npx convex env set TELEGRAM_AUTH_SECRET replace-with-a-long-random-secret
 ```
 
 **Do not set** `WEBHOOK_URL` on Pella — the bot will long-poll Telegram.

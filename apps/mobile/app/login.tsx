@@ -46,6 +46,7 @@ export default function Login() {
 
   // Telegram login handshake.
   const startSession = useMutation(api.authTelegram.start);
+  const consumeSession = useMutation(api.authTelegram.consume);
   const [tgToken, setTgToken] = useState<string | null>(null);
   const tgStatus = useQuery(
     api.authTelegram.status,
@@ -86,15 +87,31 @@ export default function Login() {
 
   // The bot verified the contact → log in automatically.
   useEffect(() => {
-    if (tgStatus?.status === 'verified' && tgStatus.userId) {
-      adoptSession(tgStatus.userId as Id<'users'>).then(() => router.replace('/home'));
+    if (tgToken && tgStatus?.status === 'verified') {
+      const token = tgToken;
+      setTgToken(null);
+      consumeSession({ token })
+        .then((userId) => adoptSession(userId as Id<'users'>))
+        .then(() => router.replace('/home'))
+        .catch(() => {
+          Alert.alert('Xatolik', "Telegram kirish sessiyasi ishlamadi. Qayta urinib ko'ring.");
+        });
     } else if (tgStatus?.status === 'expired') {
       setTimeout(() => setTgToken(null), 0);
       Alert.alert('Muddati tugadi', 'Telegram orqali kirish muddati tugadi. Qayta urinib koʻring.');
     }
-  }, [tgStatus, adoptSession, router]);
+  }, [tgStatus, tgToken, consumeSession, adoptSession, router]);
 
   const waitingTelegram = !!tgToken && tgStatus?.status === 'pending';
+
+  useEffect(() => {
+    if (!tgToken) return;
+    const timer = setTimeout(() => {
+      setTgToken(null);
+      Alert.alert('Muddati tugadi', "Telegram orqali kirish muddati tugadi. Qayta urinib ko'ring.");
+    }, 5 * 60 * 1000);
+    return () => clearTimeout(timer);
+  }, [tgToken]);
 
   return (
     <View style={styles.root}>

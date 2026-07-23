@@ -15,6 +15,13 @@ export const DEFAULTS = {
   feedRecencyWeight: 1,
   feedPromoWeight: 1,
   feedBoostDays: 28,
+  // New feed algorithm defaults (v2)
+  feedEngagementWeight: 100,
+  feedTrustWeight: 100,
+  feedPhotoWeight: 40,
+  feedDiversityPenalty: 200,
+  feedDecayDays: 7,
+  feedBatchSize: 200,
 };
 
 /** Platform settings (single row); returns defaults if unset. */
@@ -40,6 +47,12 @@ export const update = mutation({
     feedRecencyWeight: v.number(),
     feedPromoWeight: v.number(),
     feedBoostDays: v.number(),
+    feedEngagementWeight: v.number(),
+    feedTrustWeight: v.number(),
+    feedPhotoWeight: v.number(),
+    feedDiversityPenalty: v.number(),
+    feedDecayDays: v.number(),
+    feedBatchSize: v.number(),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db.query('settings').first();

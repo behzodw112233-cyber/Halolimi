@@ -55,29 +55,146 @@ async function withPreviewUrl(ctx: QueryCtx, l: Doc<'listings'>) {
 const MANUAL_WEIGHT = 100_000;
 
 /**
- * Feed score for a listing. Higher ranks first.
- *  - pinned listings are forced to the very top
- *  - the admin's manual feedBoost dominates everything below the pin
- *  - an active promotion boost adds points scaled by the admin promo weight
- *  - recency contributes points that decay over 30 days, scaled by recency weight
+ * Feed score for a listing (v2). Higher ranks first.
+ *
+ * Signals (in priority order):
+ *  0. Admin pin → forced top
+ *  1. Admin feedBoost (manual priority) → dominates
+ *  2. Recency (exponential decay over feedDecayDays)
+ *  3. Promotion tier boost
+ *  4. Engagement: views per day since creation (capped)
+ *  5. Seller trust: verified, dealer, rating
+ *  6. Photo quality: more photos = higher score (capped at 5)
+ *
+ * Diversity penalty is applied AFTER scoring (see applyDiversity).
  */
 function feedScore(
   l: Doc<'listings'>,
+  seller: {
+    verified: boolean;
+    isDealer: boolean;
+    rating: number;
+    ratingCount: number;
+  } | null,
   now: number,
-  recencyWeight: number,
-  promoWeight: number
+  w: {
+    recencyWeight: number;
+    promoWeight: number;
+    engagementWeight: number;
+    trustWeight: number;
+    photoWeight: number;
+    decayDays: number;
+  }
 ) {
   const ageDays = (now - l.createdAt) / DAY_MS;
-  const recency = Math.max(0, 30 - ageDays);
-  const boostActive = !!l.boostedUntil && l.boostedUntil > now;
-  const promo = boostActive && l.tier ? TIER_WEIGHT[l.tier] * 10 : 0;
-  const manual = (l.feedBoost ?? 0) * MANUAL_WEIGHT;
-  return (
+
+  // 0 + 1. Admin overrides (pin + manual feedBoost)
+  const adminScore =
     (l.pinned ? 1_000_000_000 : 0) +
-    manual +
-    promo * promoWeight +
-    recency * recencyWeight
-  );
+    (l.feedBoost ?? 0) * MANUAL_WEIGHT;
+
+  // 2. Recency: exponential decay over decayDays
+  const halfLife = w.decayDays > 1 ? w.decayDays : 7;
+  const recency = Math.exp(-ageDays / halfLife) * 1000 * w.recencyWeight;
+
+  // 3. Promotion boost
+  const boostActive = !!l.boostedUntil && l.boostedUntil > now;
+  const promo = boostActive && l.tier
+    ? TIER_WEIGHT[l.tier] * 10 * w.promoWeight
+    : 0;
+
+  // 4. Engagement: views per day since creation, capped
+  const views = l.views ?? 0;
+  const viewsPerDay = ageDays > 0.1 ? views / ageDays : views;
+  const engagement = Math.min(viewsPerDay, 50) * w.engagementWeight;
+
+  // 5. Seller trust signals
+  let trust = 0;
+  if (seller?.verified) trust += 1.5 * w.trustWeight;
+  if (seller?.isDealer) trust += 1.0 * w.trustWeight;
+  if (seller && seller.ratingCount > 0) {
+    trust += (Math.min(seller.rating, 5) / 5) * w.trustWeight;
+  }
+
+  // 6. Photo quality: each photo adds, capped at 5
+  const photoCount = l.photos?.length ?? 0;
+  const photoScore = Math.min(photoCount, 5) * w.photoWeight;
+
+  return adminScore + recency + promo + engagement + trust + photoScore;
+}
+
+/**
+ * Apply diversity penalty: each listing from the same seller beyond the first
+ * loses `penalty` points per duplicate. This prevents one seller from
+ * dominating the feed.
+ */
+function applyDiversity<T extends { l: Doc<'listings'>; score: number }>(
+  ranked: T[],
+  penalty: number
+): T[] {
+  if (penalty <= 0 || ranked.length < 2) return ranked;
+  const ownerCount = new Map<string, number>();
+  return ranked.map((item) => {
+    if (item.l.ownerId) {
+      const count = ownerCount.get(item.l.ownerId) ?? 0;
+      ownerCount.set(item.l.ownerId, count + 1);
+      if (count > 0) {
+        return { ...item, score: item.score - penalty * count };
+      }
+    }
+    return item;
+  });
+}
+
+/** Build seller lookup map for all active listings in a batch. */
+async function buildSellerMap(
+  ctx: QueryCtx,
+  listings: Doc<'listings'>[]
+): Promise<
+  Map<
+    string,
+    { verified: boolean; isDealer: boolean; rating: number; ratingCount: number }
+  >
+> {
+  const ids = [
+    ...new Set(
+      listings
+        .map((l) => l.ownerId)
+        .filter((id): id is NonNullable<typeof id> => id !== null)
+    ),
+  ];
+  if (ids.length === 0) return new Map();
+  const users = await Promise.all(ids.map((id) => ctx.db.get(id)));
+  const map = new Map<
+    string,
+    { verified: boolean; isDealer: boolean; rating: number; ratingCount: number }
+  >();
+  users.forEach((u, i) => {
+    if (u) {
+      map.set(ids[i], {
+        verified: !!(u.verifiedAt || u.telegramId),
+        isDealer: !!u.isDealer,
+        rating: u.ratingCount ? (u.ratingSum ?? 0) / u.ratingCount : 0,
+        ratingCount: u.ratingCount ?? 0,
+      });
+    }
+  });
+  return map;
+}
+
+/** Resolve feed weights from settings (or defaults). */
+async function feedWeights(ctx: QueryCtx) {
+  const s = await ctx.db.query('settings').first();
+  return {
+    recencyWeight: s?.feedRecencyWeight ?? 1,
+    promoWeight: s?.feedPromoWeight ?? 1,
+    engagementWeight: s?.feedEngagementWeight ?? 100,
+    trustWeight: s?.feedTrustWeight ?? 100,
+    photoWeight: s?.feedPhotoWeight ?? 40,
+    diversityPenalty: s?.feedDiversityPenalty ?? 200,
+    decayDays: s?.feedDecayDays ?? 7,
+    batchSize: s?.feedBatchSize ?? 200,
+  };
 }
 
 /** Great-circle distance in km between two coordinates (for "Yaqin atrofda"). */
@@ -250,16 +367,18 @@ export const listActive = query({
       .collect();
     const filtered = category ? rows.filter((r) => r.category === category) : rows;
 
-    // Rank by the admin-tunable feed algorithm.
-    const settings = await ctx.db.query('settings').first();
-    const recencyWeight = settings?.feedRecencyWeight ?? 1;
-    const promoWeight = settings?.feedPromoWeight ?? 1;
+    const w = await feedWeights(ctx);
     const now = Date.now();
-    const ranked = filtered
-      .map((l) => ({ l, score: feedScore(l, now, recencyWeight, promoWeight) }))
-      .sort((a, b) => b.score - a.score || b.l.createdAt - a.l.createdAt)
-      .map((x) => x.l);
-    return Promise.all(ranked.map((l) => withUrls(ctx, l)));
+    const sellerMap = await buildSellerMap(ctx, filtered);
+
+    let ranked = filtered.map((l) => {
+      const seller = l.ownerId ? sellerMap.get(l.ownerId) ?? null : null;
+      return { l, score: feedScore(l, seller, now, w) };
+    });
+    ranked.sort((a, b) => b.score - a.score || b.l.createdAt - a.l.createdAt);
+    ranked = applyDiversity(ranked, w.diversityPenalty);
+
+    return Promise.all(ranked.map((x) => withUrls(ctx, x.l)));
   },
 });
 
@@ -270,6 +389,16 @@ export const listActivePage = query({
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, { category, now: nowArg, paginationOpts }) => {
+    const w = await feedWeights(ctx);
+    const now = nowArg ?? Date.now();
+
+    // Fetch a large batch so in-memory re-ranking produces meaningful results.
+    // The batch window slides forward by createdAt desc — each page call gets
+    // the next `batchSize` newest listings, re-ranks them by score, and returns
+    // only the top `requestedCount` from that window.
+    const batchSize = Math.max(w.batchSize, paginationOpts.numItems);
+    const modifiedOpts = { ...paginationOpts, numItems: batchSize };
+
     const pageResult = category
       ? await ctx.db
           .query('listings')
@@ -277,25 +406,34 @@ export const listActivePage = query({
             q.eq('status', 'active').eq('category', category)
           )
           .order('desc')
-          .paginate(paginationOpts)
+          .paginate(modifiedOpts)
       : await ctx.db
           .query('listings')
           .withIndex('by_status', (q) => q.eq('status', 'active'))
           .order('desc')
-          .paginate(paginationOpts);
+          .paginate(modifiedOpts);
 
-    const settings = await ctx.db.query('settings').first();
-    const recencyWeight = settings?.feedRecencyWeight ?? 1;
-    const promoWeight = settings?.feedPromoWeight ?? 1;
-    const now = nowArg ?? Date.now();
-    const rankedPage = pageResult.page
-      .map((l) => ({ l, score: feedScore(l, now, recencyWeight, promoWeight) }))
-      .sort((a, b) => b.score - a.score || b.l.createdAt - a.l.createdAt)
-      .map((x) => x.l);
+    if (pageResult.page.length === 0) {
+      return { ...pageResult, page: [] };
+    }
+
+    const sellerMap = await buildSellerMap(ctx, pageResult.page);
+
+    let ranked = pageResult.page.map((l) => {
+      const seller = l.ownerId ? sellerMap.get(l.ownerId) ?? null : null;
+      return { l, score: feedScore(l, seller, now, w) };
+    });
+    ranked.sort((a, b) => b.score - a.score || b.l.createdAt - a.l.createdAt);
+    ranked = applyDiversity(ranked, w.diversityPenalty);
+
+    // Return only what the client requested, but keep the cursor pointing to
+    // the end of the batch so the next call fetches the next window.
+    const requestedCount = paginationOpts.numItems;
+    const page = ranked.slice(0, requestedCount).map((x) => x.l);
 
     return {
       ...pageResult,
-      page: await Promise.all(rankedPage.map((l) => withPreviewUrl(ctx, l))),
+      page: await Promise.all(page.map((l) => withPreviewUrl(ctx, l))),
     };
   },
 });
@@ -333,33 +471,29 @@ export const search = query({
           .withIndex('by_status', (q) => q.eq('status', 'active'))
           .order('desc')
           .paginate(args.paginationOpts);
-    const settings = await ctx.db.query('settings').first();
-    const recencyWeight = settings?.feedRecencyWeight ?? 1;
-    const promoWeight = settings?.feedPromoWeight ?? 1;
+    const w = await feedWeights(ctx);
     const now = args.now ?? Date.now();
 
     const qText = normalized(args.q);
     const city = normalized(args.city);
     const breed = normalized(args.breed);
 
-    const hydrated = await Promise.all(
-      pageResult.page.map(async (l) => {
-        let sellerRating = 0;
-        if (l.ownerId) {
-          const seller = await ctx.db.get(l.ownerId);
-          sellerRating = seller?.ratingCount
-            ? (seller.ratingSum ?? 0) / seller.ratingCount
-            : 0;
-        }
-        return { l, sellerRating };
-      })
-    );
+    // Build a single seller map for the entire batch — used for both
+    // filtering (minRating) and scoring (feedScore).
+    const searchSellers = await buildSellerMap(ctx, pageResult.page);
 
-    const filtered = hydrated.filter(({ l, sellerRating }) => {
+    const filtered = pageResult.page.filter((l) => {
       if (args.category && l.category !== args.category) return false;
       if (city && normalized(l.city) !== city) return false;
       if (args.hasPhotos && !l.photos?.length) return false;
-      if (args.minRating !== undefined && sellerRating < args.minRating) return false;
+
+      if (args.minRating !== undefined) {
+        const seller = l.ownerId ? searchSellers.get(l.ownerId) : undefined;
+        const sellerRating = seller?.ratingCount
+          ? (seller.rating ?? 0)
+          : 0;
+        if (sellerRating < args.minRating) return false;
+      }
 
       const price = numberFromText(l.price);
       if (args.priceMin !== undefined && (price === null || price < args.priceMin)) return false;
@@ -397,37 +531,40 @@ export const search = query({
         ? haversineKm(near, { lat: l.lat, lng: l.lng })
         : null;
 
-    const ranked = filtered
-      .map(({ l, sellerRating }) => {
+    let ranked = filtered
+      .map((l) => {
         const haystack = normalized(
           [l.title, l.desc, l.city, l.price, ...l.specs.map((s) => s.value)].join(' ')
         );
         const textBonus = qText && haystack.includes(qText) ? 500 : 0;
         const categoryBonus = args.category && l.category === args.category ? 250 : 0;
         const cityBonus = city && normalized(l.city) === city ? 200 : 0;
-        const ratingBonus = sellerRating * 25;
+        const seller = l.ownerId ? searchSellers.get(l.ownerId) ?? null : null;
         return {
           l,
-          sellerRating,
+          sellerRating: seller?.rating ?? 0,
           distanceKm: distanceOf(l),
           score:
-            feedScore(l, now, recencyWeight, promoWeight) +
+            feedScore(l, seller, now, w) +
             textBonus +
             categoryBonus +
-            cityBonus +
-            ratingBonus,
+            cityBonus,
         };
-      })
-      // When the buyer asked for "nearby", proximity wins; listings without
-      // coordinates fall to the bottom. Otherwise keep the normal feed ranking.
-      .sort((a, b) => {
-        if (near) {
-          const da = a.distanceKm ?? Infinity;
-          const db = b.distanceKm ?? Infinity;
-          if (da !== db) return da - db;
-        }
+      });
+
+    // When the buyer asked for "nearby", sort by proximity first.
+    // Otherwise sort by the full feed algorithm score.
+    if (near) {
+      ranked.sort((a, b) => {
+        const da = a.distanceKm ?? Infinity;
+        const db = b.distanceKm ?? Infinity;
+        if (da !== db) return da - db;
         return b.score - a.score || b.l.createdAt - a.l.createdAt;
       });
+    } else {
+      ranked.sort((a, b) => b.score - a.score || b.l.createdAt - a.l.createdAt);
+      ranked = applyDiversity(ranked, w.diversityPenalty);
+    }
 
     return {
       ...pageResult,
@@ -836,7 +973,13 @@ export const aiRecommend = query({
               : 120
             : 0;
         const trustScore = (l.photos?.length ? 60 : 0) + (l.ownerId ? 40 : 0);
-        const feedPart = Math.min(250, feedScore(l, now, recencyWeight, promoWeight) / 1000);
+        // Use a simplified feedScore without seller data since aiRecommend
+        // already has its own comprehensive scoring logic.
+        const feedPart = Math.min(250,
+          (feedScore(l, null, now, {
+            recencyWeight, promoWeight,
+            engagementWeight: 100, trustWeight: 100, photoWeight: 40, decayDays: 7,
+          }) / 1000));
         const score =
           feedPart +
           categoryScore +
@@ -937,12 +1080,14 @@ export const feedManage = query({
       .query('listings')
       .withIndex('by_status', (q) => q.eq('status', 'active'))
       .collect();
-    const settings = await ctx.db.query('settings').first();
-    const recencyWeight = settings?.feedRecencyWeight ?? 1;
-    const promoWeight = settings?.feedPromoWeight ?? 1;
+    const w = await feedWeights(ctx);
     const now = Date.now();
+    const sellerMap = await buildSellerMap(ctx, rows);
     const ranked = rows
-      .map((l) => ({ l, score: feedScore(l, now, recencyWeight, promoWeight) }))
+      .map((l) => {
+        const seller = l.ownerId ? sellerMap.get(l.ownerId) ?? null : null;
+        return { l, score: feedScore(l, seller, now, w) };
+      })
       .sort((a, b) => b.score - a.score || b.l.createdAt - a.l.createdAt);
     return Promise.all(
       ranked.map(async ({ l, score }) => ({

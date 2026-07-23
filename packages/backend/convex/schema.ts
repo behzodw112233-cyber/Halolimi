@@ -422,6 +422,13 @@ export default defineSchema({
     feedRecencyWeight: v.optional(v.number()),
     feedPromoWeight: v.optional(v.number()),
     feedBoostDays: v.optional(v.number()),
+    // New feed algorithm weights (v2).
+    feedEngagementWeight: v.optional(v.number()),
+    feedTrustWeight: v.optional(v.number()),
+    feedPhotoWeight: v.optional(v.number()),
+    feedDiversityPenalty: v.optional(v.number()),
+    feedDecayDays: v.optional(v.number()),
+    feedBatchSize: v.optional(v.number()),
   }),
 
   notifications: defineTable({

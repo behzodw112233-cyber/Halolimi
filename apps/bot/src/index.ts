@@ -29,7 +29,7 @@ const WEBHOOK_URL = process.env.WEBHOOK_URL?.trim();
 async function runPolling() {
   await bot.init();
   await bot.api.setMyCommands([{ command: 'start', description: 'Botni ishga tushirish' }]);
-  // A webhook and long-polling can't be active at once.
+  // Drop any lingering webhook or stale pollers.
   await bot.api.deleteWebhook({ drop_pending_updates: true });
 
   console.log(`🤖 @${bot.botInfo.username} long-polling rejimida (Pella / local).`);
@@ -37,10 +37,28 @@ async function runPolling() {
   process.once('SIGINT', () => bot.stop());
   process.once('SIGTERM', () => bot.stop());
 
-  await bot.start({
-    allowed_updates: ['message', 'callback_query'],
-    onStart: () => console.log('✅ Yangilanishlarni tinglash boshlandi.'),
-  });
+  // Retry polling up to 5 times on 409 conflict (another instance is polling).
+  // Pella sometimes has a brief overlap where the old instance hasn't been
+  // killed before the new one starts.
+  const MAX_RETRIES = 5;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await bot.start({
+        allowed_updates: ['message', 'callback_query'],
+        onStart: () => console.log('✅ Yangilanishlarni tinglash boshlandi.'),
+      });
+      return;
+    } catch (err) {
+      const isConflict = err instanceof Error && (err as { error_code?: number }).error_code === 409;
+      if (attempt < MAX_RETRIES && isConflict) {
+        const delay = Math.min(2 ** attempt * 2000, 30000);
+        console.warn(`⚠️ Bot 409 conflict (attempt ${attempt + 1}/${MAX_RETRIES}), kutish ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 async function runWebhook() {

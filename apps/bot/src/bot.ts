@@ -310,11 +310,11 @@ export function createBot(token: string, authSecret: string) {
           { parse_mode: 'HTML', reply_markup: phoneRequestKeyboard() }
         );
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Nomaʼlum xatolik';
-        console.error('/start claim error:', msg);
-        // The most common cause is TELEGRAM_AUTH_SECRET not matching between
-        // the bot hosting and the Convex deployment. Surface the real error so
-        // the admin can diagnose it instead of showing a generic "expired" message.
+        const rawMsg = err instanceof Error ? err.message : String(err);
+        const msg = rawMsg || 'Nomaʼlum xatolik (xabar boʻsh)';
+        // Log both the message and the full error for debugging.
+        console.error('/start claim error:', rawMsg || '(empty)');
+        console.error('/start claim full error:', err);
         if (msg.includes('TELEGRAM_AUTH_SECRET') || msg.includes('Ruxsat berilmagan')) {
           await ctx.reply(
             '❌ <b>Sozlamalar xatosi</b>\n\n' +
@@ -323,7 +323,7 @@ export function createBot(token: string, authSecret: string) {
           );
         } else if (msg.includes('muddati tugagan') || msg.includes('eskirgan')) {
           await ctx.reply('❌ Kirish havolasi eskirgan. Halolmi ilovasida qaytadan urinib ko‘ring.');
-        } else if (msg.includes('topilmadi')) {
+        } else if (msg.includes('topilmadi') || msg.includes('sessiyasi')) {
           await ctx.reply(
             '❌ <b>Kirish havolasi topilmadi</b>\n\n' +
               'Sessiya topilmadi. Halolmi ilovasida qaytadan urinib ko‘ring.',

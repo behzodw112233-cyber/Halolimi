@@ -16,6 +16,7 @@
       "bundleIdentifier": "com.behzodosteam.halomi",
       "supportsTablet": true,
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Halolmi videoqoʻngʻiroqlar uchun kameradan foydalanadi.",
         "NSMicrophoneUsageDescription": "Halolmi qoʻngʻiroqlar uchun mikrofondan foydalanadi.",
         "NSLocationWhenInUseUsageDescription": "Halolmi yaqin atrofdagi hayvonlarni koʻrsatish va eʼlon manzilini aniqlash uchun joylashuvdan foydalanadi."

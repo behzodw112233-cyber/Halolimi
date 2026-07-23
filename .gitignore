@@ -28,3 +28,10 @@ web-build/
 # Agent skills (symlinked dirs — break EAS build tarball on Windows)
 .agents/
 .claude/skills/
+.aigon/.board-map.json
+.aigon/worktree.json
+.aigon/state/
+.aigon/locks/
+next-env.d.ts
+.env.local
+.env*.local

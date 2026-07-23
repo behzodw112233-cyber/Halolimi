@@ -9,9 +9,9 @@ const SESSION_TTL_MS = 5 * 60 * 1000;
 function assertBotSecret(secret: string) {
   const expected = process.env.TELEGRAM_AUTH_SECRET;
   if (!expected || expected.length < 32) {
-    throw new Error('TELEGRAM_AUTH_SECRET sozlanmagan');
+    throw new Error('TELEGRAM_AUTH_SECRET sozlanmagan — serverda env kaliti belgilanmagan yoki juda qisqa');
   }
-  if (secret !== expected) throw new Error('Ruxsat berilmagan');
+  if (secret !== expected) throw new Error("Ruxsat berilmagan — bot va Convex'dagi TELEGRAM_AUTH_SECRET mos kelmadi");
 }
 
 function assertFreshSession(createdAt: number) {
